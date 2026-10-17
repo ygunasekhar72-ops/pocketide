@@ -146,7 +146,7 @@ private fun ErrorState(state: HomeUiState.Error, onRetry: () -> Unit) {
 }
 
 @Composable
-private fun HomeContent(
+internal fun HomeContent(
     state: HomeUiState.Ready,
     query: String,
     filteredProjects: List<ProjectRepository.ProjectInfo>,

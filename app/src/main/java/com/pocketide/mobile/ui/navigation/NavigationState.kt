@@ -30,9 +30,7 @@ class NavigationState(initial: PocketDestination = PocketDestination.Home) {
 
     /** Bottom-bar navigation: clears any detail screens above the tab root. */
     fun switchTo(target: PocketDestination) {
-        mutableStack.update { current ->
-            current.dropLast(current.size - 1) + target
-        }
+        mutableStack.update { listOf(target) }
     }
 
     /** Opens a detail screen layered on the current tab. */

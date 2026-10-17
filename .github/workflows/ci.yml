@@ -32,6 +32,16 @@ jobs:
       - name: Run unit tests and build debug APK
         run: ./gradlew :app:testDebugUnitTest :app:assembleDebug --stacktrace
 
+      - name: Upload test results for diagnosis
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pocketide-test-results-${{ github.sha }}
+          path: |
+            app/build/test-results/testDebugUnitTest/*.xml
+            app/build/reports/tests/testDebugUnitTest/
+          if-no-files-found: warn
+
       - name: Upload debug APK artifact
         uses: actions/upload-artifact@v4
         with:

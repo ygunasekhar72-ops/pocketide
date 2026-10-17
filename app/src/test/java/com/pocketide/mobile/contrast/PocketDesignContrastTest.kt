@@ -39,7 +39,7 @@ class PocketDesignContrastTest {
     }
 
     private fun argb(color: androidx.compose.ui.graphics.Color): Long =
-        (color.value.toLong() and 0xFFFFFFL) or 0xFF000000L
+        (color.value.toLong() ushr 32 and 0xFFFFFFL) or 0xFF000000L
 
     @Test
     fun bodyTextContrast_meetsAA() {

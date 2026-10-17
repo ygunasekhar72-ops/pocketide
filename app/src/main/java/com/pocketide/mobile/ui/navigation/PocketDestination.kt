@@ -13,8 +13,14 @@ sealed class PocketDestination(val id: String, val label: String, val symbol: St
     data object Settings : PocketDestination("settings", "Settings", "::")
 
     companion object {
-        /** Canonical bottom-bar order. */
-        val bottomTabs = listOf(Home, Editor, Terminal, Assistant, Settings)
+        /** Canonical bottom-bar order.
+         *
+         * `lazy` breaks the JVM class-initialization cycle: referencing any
+         * single-tab object first triggers this class's <clinit> via the
+         * superclass chain while the tab's own `INSTANCE` is still null, so an
+         * eager `listOf(Home, ...)` captures null for the first-touched tab
+         * (KT-67222). Lazy defers the list until every tab is initialized. */
+        val bottomTabs by lazy { listOf(Home, Editor, Terminal, Assistant, Settings) }
 
         fun fromId(id: String): PocketDestination? = when (id) {
             Home.id -> Home

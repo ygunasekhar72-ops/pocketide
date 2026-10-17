@@ -66,5 +66,10 @@ dependencies {
     testImplementation(libs.robolectric)
     testImplementation(platform(libs.androidx.compose.bom))
     testImplementation(libs.androidx.compose.ui.test.junit4)
-    testImplementation(libs.androidx.compose.ui.test.manifest)
+    // debugImplementation (per androidx docs): ui-test-manifest is an empty
+    // module whose manifest declares androidx.activity.ComponentActivity so
+    // createComposeRule() can launch it. On testImplementation its manifest is
+    // never merged into the debug manifest Robolectric's unit-test config
+    // consumes, producing "Unable to resolve activity ... ComponentActivity".
+    debugImplementation(libs.androidx.compose.ui.test.manifest)
 }

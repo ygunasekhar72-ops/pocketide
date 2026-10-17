@@ -21,6 +21,7 @@ editor + integrated terminal + Git + an AI agent loop with approval boundaries.
 ## Current status
 
 - [x] M0 — repository + CI skeleton (this commit)
+- [x] M0.5 — Compose UI foundation: design system, shell navigation, home (real workspace projects), honest editor/terminal/AI/settings surfaces
 - [ ] M1 — terminal proof of concept (Gate A)
 - [ ] M2 — Monaco proof of concept (Gate B)
 - [ ] M3 — workspace core (file ops, tabs, autosave)
@@ -29,6 +30,19 @@ editor + integrated terminal + Git + an AI agent loop with approval boundaries.
 - [ ] M6 — AI agent loop (real tools, real approval)
 - [ ] M7 — optional Linux runtime
 - [ ] M8 — polish + signed releases
+
+### M0.5 UI foundation (what works vs. what is deliberately not there yet)
+
+Works for real:
+- Dark-first design system (charcoal surfaces, purple primary, mint secondary; WCAG-verified token pairs)
+- Shell navigation: 5 bottom tabs, detail push/pop, system-back handling, top-bar project context
+- Home: create/delete/filter **real local projects** (directories under the app workspace), empty/loading/error states
+- Settings: identity, workspace path (copyable), repository link
+
+Deliberate placeholders (unavailable engines are labeled, never simulated):
+- Editor: tabs/breadcrumb/accessory-bar layout only — Monaco lands in M2, file access in M3
+- Terminal: session header/output/input layout only — real PTY engine lands in M1
+- AI: provider status + approval-rules summary only — provider/keys/tool loop lands in M6
 
 ## Build
 

@@ -29,6 +29,24 @@ the milestone in which the dependency is introduced.
 | androidx.compose.material3:material3 | via BOM | Apache-2.0 | Google Maven | transitive via BOM |
 | junit | 4.13.2 | EPL-1.0 | Maven Central | standard test scope |
 
+## Runtime libraries (M0.5)
+
+| Component | Version | License | Source | Verified |
+|---|---|---|---|---|
+| androidx.lifecycle:lifecycle-viewmodel-compose | 2.8.7 (matches lifecycle family) | Apache-2.0 | Google Maven | 200 on POM |
+
+## Test-only libraries (M0.5)
+
+| Component | Version | License | Source | Verified |
+|---|---|---|---|---|
+| androidx.test.ext:junit | 1.2.1 | Apache-2.0 | Google Maven | 200 on POM |
+| androidx.compose.ui:ui-test-junit4 | BOM 2024.12.01 (1.7.6) | Apache-2.0 | Google Maven | 200 on POM (ui-test-junit4-android) |
+| androidx.compose.ui:ui-test-manifest | BOM 2024.12.01 (1.7.6) | Apache-2.0 | Google Maven | 200 on POM |
+| org.robolectric:robolectric | 4.14.1 | MIT | Maven Central | 200 on POM |
+
+Robolectric downloads android-all jars at test runtime (~100 MB, Gradle-cached).
+
+
 ## Pending gates (to be verified before introduction)
 
 - **M1 terminal**: vendored `emulatorview` (jackpal/Android-Terminal-Emulator,

@@ -22,7 +22,7 @@ fun CreateProjectDialog(
     onCreate: (name: String) -> Unit
 ) {
     var name by rememberSaveable { mutableStateOf("") }
-    val valid = ProjectRepository.NAME_PATTERN_PUBLIC.matches(name.trim())
+    val valid = ProjectRepository.NAME_PATTERN.matches(name.trim())
 
     AlertDialog(
         onDismissRequest = onDismiss,

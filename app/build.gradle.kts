@@ -1,8 +1,17 @@
+import java.io.File
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
 }
+
+// Pinned debug signing: CI decodes DEBUG_KEYSTORE_B64 to a file and exports
+// DEBUG_KEYSTORE_FILE, so every CI APK is signed by the same long-lived key and
+// installs as an in-place update over previous ones. Without the env (local
+// builds, fork PRs without secret access) AGP's default debug keystore is used.
+val pinnedDebugKeystore: File? = System.getenv("DEBUG_KEYSTORE_FILE")
+    ?.takeIf { file(it).isFile && file(it).length() > 0L }
 
 android {
     namespace = "com.pocketide.mobile"
@@ -16,7 +25,22 @@ android {
         versionName = "0.1.0-M0.5"
     }
 
+    signingConfigs {
+        if (pinnedDebugKeystore != null) {
+            create("pinnedDebug") {
+                storeFile = pinnedDebugKeystore
+                storePassword = System.getenv("DEBUG_KEYSTORE_PASSWORD")
+                keyAlias = System.getenv("DEBUG_KEYSTORE_ALIAS")
+                keyPassword = System.getenv("DEBUG_KEY_PASSWORD")
+            }
+        }
+    }
     buildTypes {
+        debug {
+            if (pinnedDebugKeystore != null) {
+                signingConfig = signingConfigs.getByName("pinnedDebug")
+            }
+        }
         release {
             isMinifyEnabled = false
             proguardFiles(

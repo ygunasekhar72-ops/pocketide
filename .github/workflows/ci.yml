@@ -26,10 +26,23 @@ jobs:
       - name: Set up Gradle (wrapper + dependency caching)
         uses: gradle/actions/setup-gradle@v4
 
+      - name: Restore pinned debug keystore
+        env:
+          DEBUG_KEYSTORE_B64: ${{ secrets.DEBUG_KEYSTORE_B64 }}
+        run: |
+          if [ -n "$DEBUG_KEYSTORE_B64" ]; then
+            printf '%s' "$DEBUG_KEYSTORE_B64" | base64 --decode > "$RUNNER_TEMP/pocketide-debug.keystore"
+            echo "DEBUG_KEYSTORE_FILE=$RUNNER_TEMP/pocketide-debug.keystore" >> "$GITHUB_ENV"
+          fi
+
       - name: Show toolchain versions
         run: ./gradlew --version
 
       - name: Run unit tests and build debug APK
+        env:
+          DEBUG_KEYSTORE_PASSWORD: ${{ secrets.DEBUG_KEYSTORE_PASSWORD }}
+          DEBUG_KEY_PASSWORD: ${{ secrets.DEBUG_KEYSTORE_PASSWORD }}
+          DEBUG_KEYSTORE_ALIAS: pocketide-debug
         run: ./gradlew :app:testDebugUnitTest :app:assembleDebug --stacktrace
 
       - name: Upload test results for diagnosis
@@ -48,3 +61,28 @@ jobs:
           name: PocketIDE-debug-${{ github.sha }}
           path: app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
+
+      - name: Verify APK signing certificate (from the built APK)
+        env:
+          PINNED_CERT_SHA256: 792fc924ad1655a5d244ca238ad0aa544c6ffac5d5b2f7141e17ec9195f40e2b
+        run: |
+          if [ -z "$DEBUG_KEYSTORE_FILE" ]; then
+            echo "pinned keystore absent (fork/local fallback); skipping pinned-cert comparison"
+            exit 0
+          fi
+          APKSIGNER="$(find "${ANDROID_HOME:-/usr/local/lib/android/sdk}/build-tools" -name apksigner -type f 2>/dev/null | sort -V | tail -1)"
+          if [ -z "$APKSIGNER" ]; then
+            echo "ERROR: apksigner not found; cannot verify pinned signing"
+            exit 1
+          fi
+          DIGEST="$("$APKSIGNER" verify --print-certs app/build/outputs/apk/debug/app-debug.apk \
+            | grep -E '^Signer #1 certificate SHA-256 digest:' | awk '{print $NF}')"
+          if [ -z "$DIGEST" ]; then
+            echo "ERROR: could not read signing certificate digest from built APK"
+            exit 1
+          fi
+          if [ "$DIGEST" != "$PINNED_CERT_SHA256" ]; then
+            echo "ERROR: APK signer cert mismatch: got $DIGEST, expected $PINNED_CERT_SHA256"
+            exit 1
+          fi
+          echo "pinned debug signing verified: $DIGEST"

@@ -1,5 +1,3 @@
-import java.io.File
-
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
@@ -10,8 +8,10 @@ plugins {
 // DEBUG_KEYSTORE_FILE, so every CI APK is signed by the same long-lived key and
 // installs as an in-place update over previous ones. Without the env (local
 // builds, fork PRs without secret access) AGP's default debug keystore is used.
-val pinnedDebugKeystore: File? = System.getenv("DEBUG_KEYSTORE_FILE")
-    ?.takeIf { file(it).isFile && file(it).length() > 0L }
+val pinnedDebugKeystore = System.getenv("DEBUG_KEYSTORE_FILE")?.let {
+    val f = file(it)
+    if (f.isFile && f.length() > 0L) f else null
+}
 
 android {
     namespace = "com.pocketide.mobile"

@@ -23,6 +23,16 @@ android {
         targetSdk = 35
         versionCode = 2
         versionName = "0.1.0-M0.5"
+
+        // Native ABIs (M1-P1 packaging spike only): arm64-v8a matches the
+        // target device (Moto G64 5G, 64-bit ARM); x86_64 matches the CI
+        // emulator. armeabi-v7a is deliberately deferred until the release
+        // phase (M8) needs a 32-bit support matrix - not silently dropped.
+        externalNativeBuild {
+            cmake {
+                abiFilters += listOf("arm64-v8a", "x86_64")
+            }
+        }
     }
 
     signingConfigs {
@@ -69,6 +79,18 @@ android {
     buildFeatures {
         compose = true
     }
+
+    // Native build (M1-P1): our own Apache-2.0 stub, built for reproducibility
+    // with explicit toolchain versions. NDK 27.0.12077973 is the AGP 8.7.3
+    // default; CMake 3.22.1 is the LTS supported by sdkmanager. AGP
+    // auto-installs either if the build machine lacks them.
+    externalNativeBuild {
+        cmake {
+            path = file("src/main/cpp/CMakeLists.txt")
+            version = "3.22.1"
+        }
+    }
+    ndkVersion = "27.0.12077973"
 }
 
 kotlin {

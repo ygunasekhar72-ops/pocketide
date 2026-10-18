@@ -70,13 +70,17 @@ jobs:
             echo "pinned keystore absent (fork/local fallback); skipping pinned-cert comparison"
             exit 0
           fi
+          APK=app/build/outputs/apk/debug/app-debug.apk
           APKSIGNER="$(find "${ANDROID_HOME:-/usr/local/lib/android/sdk}/build-tools" -name apksigner -type f 2>/dev/null | sort -V | tail -1)"
           if [ -z "$APKSIGNER" ]; then
             echo "ERROR: apksigner not found; cannot verify pinned signing"
             exit 1
           fi
-          DIGEST="$("$APKSIGNER" verify --print-certs app/build/outputs/apk/debug/app-debug.apk \
-            | grep -E '^Signer #1 certificate SHA-256 digest:' | awk '{print $NF}')"
+          "$APKSIGNER" verify --print-certs "$APK" > "$RUNNER_TEMP/apksigner-output.txt" 2>&1 || true
+          echo "--- raw apksigner output ---"
+          cat "$RUNNER_TEMP/apksigner-output.txt"
+          echo "--- end raw apksigner output ---"
+          DIGEST="$(grep -m1 'certificate SHA-256 digest:' "$RUNNER_TEMP/apksigner-output.txt" | awk '{print $NF}')"
           if [ -z "$DIGEST" ]; then
             echo "ERROR: could not read signing certificate digest from built APK"
             exit 1

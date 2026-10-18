@@ -1,7 +1,6 @@
 package com.pocketide.mobile.terminal
 
 import kotlinx.coroutines.CompletableDeferred
-import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.channels.Channel
@@ -229,7 +228,7 @@ class PtySessionTest {
     @Test
     fun scopeCancellation_tearsDownExactlyOnce() = runTest {
         val dispatcher = StandardTestDispatcher(testScheduler)
-        val outer = CoroutineScope(dispatcher + Job())
+        val outer = TestScope(dispatcher)
         val handle = ScriptedHandle()
         val session = PtySession(handle, outer)
         session.start(spec)

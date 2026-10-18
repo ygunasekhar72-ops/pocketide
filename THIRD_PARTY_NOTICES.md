@@ -47,6 +47,19 @@ the milestone in which the dependency is introduced.
 Robolectric downloads android-all jars at test runtime (~100 MB, Gradle-cached).
 
 
+## Runtime libraries (M1-P2)
+
+| Component | Version | License | Source | Verified |
+|---|---|---|---|---|
+| org.jetbrains.kotlinx:kotlinx-coroutines-core | 1.10.1 | Apache-2.0 | Maven Central | 200 on `kotlinx-coroutines-core-1.10.1.pom` and `kotlinx-coroutines-core-jvm-1.10.1.pom` (2026-10-18) |
+
+## Test-only libraries (M1-P2)
+
+| Component | Version | License | Source | Verified |
+|---|---|---|---|---|
+| org.jetbrains.kotlinx:kotlinx-coroutines-test | 1.10.1 | Apache-2.0 | Maven Central | 200 on `kotlinx-coroutines-test-1.10.1.pom` (2026-10-18) |
+
+
 ## Pending gates (to be verified before introduction)
 
 - **M1 terminal**: vendored `emulatorview` (jackpal/Android-Terminal-Emulator,

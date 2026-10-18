@@ -6,6 +6,7 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.pocketide.mobile.home.HomeUiState
 import com.pocketide.mobile.home.data.ProjectRepository
@@ -103,7 +104,7 @@ class PocketAppShellTest {
         }
         composeRule.onNodeWithText("com.pocketide.mobile").assertIsDisplayed()
         composeRule.onNodeWithText("/data/user/0/com.pocketide.mobile/files/workspace").assertIsDisplayed()
-        composeRule.onNodeWithText("License").assertIsDisplayed()
+        composeRule.onNodeWithText("License").performScrollTo().assertIsDisplayed()
     }
 
     @Test

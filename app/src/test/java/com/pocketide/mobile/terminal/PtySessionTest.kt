@@ -1,11 +1,13 @@
 package com.pocketide.mobile.terminal
 
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
+import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
@@ -71,9 +73,12 @@ class PtySessionTest {
 
     private val spec = PtySpec(cwd = File("/tmp/workspace"))
 
+    @OptIn(ExperimentalCoroutinesApi::class)
     private fun TestScope.collectToString(session: PtySession): MutableList<String> {
         val received = mutableListOf<String>()
-        backgroundScope.launch { session.output.collect { received.add(it.decodeToString()) } }
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) {
+            session.output.collect { received.add(it.decodeToString()) }
+        }
         return received
     }
 

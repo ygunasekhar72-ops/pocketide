@@ -1,4 +1,4 @@
-# PocketIDE native library build - P1 packaging stub only.
+# PocketIDE native library build - P3a PTY backend (one source file, pure C).
 # Constructive details and ABI policy are documented in app/build.gradle.kts.
 cmake_minimum_required(VERSION 3.22.1)
 project(pocketpty LANGUAGES C)

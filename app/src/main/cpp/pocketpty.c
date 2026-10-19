@@ -192,6 +192,20 @@ static void pt_drain_wake(int wakeR)
     }
 }
 
+/*
+ * pipe2(O_CLOEXEC|O_NONBLOCK) is not declared on bionic without feature
+ * test macros AGP does not set; pipe() + fcntl is equivalent and portable.
+ */
+static int pt_pipe_cloexec_nonblock(int fds[2])
+{
+    if (pipe(fds) != 0) return -1;
+    for (int i = 0; i < 2; ++i) {
+        fcntl(fds[i], F_SETFL, fcntl(fds[i], F_GETFL) | O_NONBLOCK);
+        fcntl(fds[i], F_SETFD, fcntl(fds[i], F_GETFD) | FD_CLOEXEC);
+    }
+    return 0;
+}
+
 /* The single reaping owner for the child of this slot. */
 static void *pt_reaper_fn(void *arg)
 {
@@ -384,7 +398,7 @@ Java_com_pocketide_mobile_terminal_PtyBridge_nativeOpen(JNIEnv *env, jclass claz
         jni_throw_errno(env, "java/io/IOException", "pocketpty: openpty failed", errno);
         goto out;
     }
-    if (pipe2(errPipe, O_CLOEXEC | O_NONBLOCK) != 0) {
+    if (pt_pipe_cloexec_nonblock(errPipe) != 0) {
         jni_throw_errno(env, "java/io/IOException", "pocketpty: pipe failed", errno);
         goto out;
     }
@@ -486,7 +500,7 @@ Java_com_pocketide_mobile_terminal_PtyBridge_nativeOpen(JNIEnv *env, jclass claz
     }
     {
         int wake[2] = { -1, -1 };
-        if (pipe2(wake, O_CLOEXEC | O_NONBLOCK) != 0) {
+        if (pt_pipe_cloexec_nonblock(wake) != 0) {
             jni_throw_errno(env, "java/io/IOException", "pocketpty: wake pipe failed", errno);
             /* reap + close (rollback I6) */
             for (;;) {

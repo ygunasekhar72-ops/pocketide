@@ -65,7 +65,7 @@ class PtyEnvTest {
     @Test
     fun `every entry is a KEY=VALUE pair with a legal key`() {
         val vars = PtyEnv.build(spec(mapOf("A" to "b", "SHELLish" to "x")))
-        assertEquals(4, vars.size)
+        assertEquals(5, vars.size)
         val keyRegex = Regex("^[A-Za-z_][A-Za-z0-9_]*=")
         assertTrue(vars.all { keyRegex.containsMatchIn(it) })
     }

@@ -1,9 +1,11 @@
 package com.pocketide.mobile.agent
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.util.Collections
 
 class AgentCommandRegistryTest {
 
@@ -144,9 +146,12 @@ class AgentCommandRegistryTest {
         registry.register(
             AgentCommandTemplate("mut-orig", "/bin/tool", backing)
         )
-        // Hostile mutation of the input collection after the fact.
+        // Hostile mutation of the input collection after the fact. This
+        // mutation is under the test's own control and always lands.
         backing.clear()
         backing.add("evil")
+        // Deterministic behavioral evidence that the mutation happened.
+        assertEquals(listOf("evil"), backing)
         // Registered behavior is still the snapshotted arg prefix.
         val originalShape = registry.validateProposal(
             AgentCommandSpec(executable = "/bin/tool", args = listOf("a", "b"), catalogId = "mut-orig")
@@ -164,21 +169,37 @@ class AgentCommandRegistryTest {
         val registry = AgentCommandRegistry()
         registry.register(template(templateArgs = listOf("a", "b")))
         val leaked = registry.lookup("readme-echo")!!
-        // Attempt mutation of the returned snapshot. Depending on the Kotlin
-        // runtime, the copied List may be immutable; either way the registry
-        // must behave exactly as registered for both below validations.
-        try {
-            leaked.templateArgs.add("evil")
-        } catch (_: UnsupportedOperationException) {
-            // truly immutable snapshot copy: registry isolation trivially holds
-        }
-        val trueShape = registry.validateProposal(proposal(args = listOf("a", "b")))
-        assertTrue(trueShape is ProposalDecision.Valid)
+
+        // Registry behavior BEFORE any mutation attempt.
+        assertTrue(registry.validateProposal(proposal(args = listOf("a", "b")))
+            is ProposalDecision.Valid)
+
+        // Defensive-copy exposure: the mutation attempt targets exactly the
+        // object the registry handed out. Whether it can land is decided by
+        // the snapshot implementation, so the result is checked explicitly
+        // instead of being ignored.
+        val mutationLanded = tryMutate(leaked.templateArgs)
+
+        // Unchanged registry behavior in both cases (security property).
+        assertTrue(registry.validateProposal(proposal(args = listOf("a", "b")))
+            is ProposalDecision.Valid)
         val mutatedShape = registry.validateProposal(
             proposal(args = listOf("a", "b", "evil"))
         )
         mutatedShape as ProposalDecision.Invalid
         assertEquals(ProposalRejectionReason.ARGUMENT_MISMATCH, mutatedShape.reason)
+
+        if (mutationLanded) {
+            // Explicitly exercised branch: the snapshot copy is writable and
+            // the mutation landed on the detached copy only. The registered
+            // template still enforces the registered shape, proven by the
+            // two validations above.
+            assertTrue(leaked.templateArgs.contains("evil"))
+        }
+        // When the runtime hands out immutable snapshots the mutation does
+        // not land; successful-mutation coverage is then carried
+        // deterministically by the caller-owned fixture test and the two
+        // helper-coverage tests below, never silently.
     }
 
     @Test
@@ -187,11 +208,15 @@ class AgentCommandRegistryTest {
         registry.register(template())
         val decision = registry.validateProposal(proposal())
         decision as ProposalDecision.Valid
-        try {
-            decision.template.templateArgs.add("evil")
-        } catch (_: UnsupportedOperationException) {
-            // immutable snapshot copy: nothing observable to mutate
-        }
+
+        // Registry behavior BEFORE any mutation attempt.
+        assertTrue(registry.validateProposal(proposal()) is ProposalDecision.Valid)
+
+        // Same explicit-result contract as the looked-up-template test.
+        val mutationLanded = tryMutate(decision.template.templateArgs)
+
+        // Unchanged validation semantics in both cases (security property).
+        assertTrue(registry.validateProposal(proposal()) is ProposalDecision.Valid)
         val again = registry.validateProposal(proposal())
         assertTrue(again is ProposalDecision.Valid)
         // And the mutated shape remains a mismatch (exact-match policy).
@@ -200,6 +225,12 @@ class AgentCommandRegistryTest {
         )
         mutated as ProposalDecision.Invalid
         assertEquals(ProposalRejectionReason.ARGUMENT_MISMATCH, mutated.reason)
+
+        if (mutationLanded) {
+            // Explicitly exercised branch: valid-decision snapshots are
+            // detached copies; the mutation landed on the copy only.
+            assertTrue(decision.template.templateArgs.contains("evil"))
+        }
     }
 
     @Test
@@ -230,5 +261,42 @@ class AgentCommandRegistryTest {
         val secondInvalid = registry.validateProposal(proposal(catalogId = "gone"))
         assertEquals(firstInvalid, secondInvalid)
         assertEquals(1, registry.size)
+    }
+
+    /**
+     * Attempts one real mutation of a snapshot copy and returns whether the
+     * mutation actually landed. Deterministic behavior: a list exposing
+     * MutableList but refusing writes raises UnsupportedOperationException,
+     * which counts as NOT mutated rather than crashing the test.
+     */
+    private fun tryMutate(args: List<String>): Boolean {
+        val mutable = args as? MutableList<String> ?: return false
+        return try {
+            mutable.add("evil")
+            true
+        } catch (_: UnsupportedOperationException) {
+            false
+        }
+    }
+
+    @Test
+    fun `helper records a real mutation on a genuinely mutable fixture`() {
+        val backing = ArrayList<String>()
+        backing.add("one")
+        // Assert the mutation coverage is real, not assumed.
+        assertTrue(tryMutate(backing))
+        assertEquals(listOf("one", "evil"), backing)
+    }
+
+    @Test
+    fun `helper treats mutation-rejecting lists as not mutated`() {
+        // java.util.Collections.unmodifiableList guarantees
+        // UnsupportedOperationException for add(), so the refused-write
+        // branch is exercised deterministically, independent of toList().
+        val immutable: List<String> = Collections.unmodifiableList(
+            listOf("one")
+        )
+        assertFalse(tryMutate(immutable))
+        assertEquals(listOf("one"), immutable)
     }
 }

@@ -77,26 +77,26 @@ class AgentCommandResultTest {
     @Test
     fun `failure taxonomy is pinned`() {
         val codes = setOf(
-            AgentCommandResult.FailureCode.MISSING_APP,
-            AgentCommandResult.FailureCode.PERMISSION_NEEDED,
-            AgentCommandResult.FailureCode.POLICY_OFF,
-            AgentCommandResult.FailureCode.INVALID_SPEC,
-            AgentCommandResult.FailureCode.TIMEOUT,
-            AgentCommandResult.FailureCode.TERMUX_INTERNAL,
-            AgentCommandResult.FailureCode.RECEIPT_INVALID,
-            AgentCommandResult.FailureCode.INTERNAL
+            FailureCode.MISSING_APP,
+            FailureCode.PERMISSION_NEEDED,
+            FailureCode.POLICY_OFF,
+            FailureCode.INVALID_SPEC,
+            FailureCode.TIMEOUT,
+            FailureCode.TERMUX_INTERNAL,
+            FailureCode.RECEIPT_INVALID,
+            FailureCode.INTERNAL
         )
-        assertEquals(codes, AgentCommandResult.FailureCode.entries.toSet())
-        assertTrue(AgentCommandResult.Failure(AgentCommandResult.FailureCode.TIMEOUT, "lease expired").detail == "lease expired")
+        assertEquals(codes, FailureCode.entries.toSet())
+        assertTrue(AgentCommandResult.Failure(FailureCode.TIMEOUT, "lease expired").detail == "lease expired")
     }
 
     @Test
     fun `denial carries op and outcome`() {
         val denied = AgentCommandResult.Denied(
             op = SensitiveOp.PRIVILEGED_EXECUTION,
-            outcome = AgentCommandResult.DenialOutcome.HARD_BLOCKED
+            outcome = DenialOutcome.HARD_BLOCKED
         )
         assertEquals(SensitiveOp.PRIVILEGED_EXECUTION, denied.op)
-        assertEquals(AgentCommandResult.DenialOutcome.HARD_BLOCKED, denied.outcome)
+        assertEquals(DenialOutcome.HARD_BLOCKED, denied.outcome)
     }
 }

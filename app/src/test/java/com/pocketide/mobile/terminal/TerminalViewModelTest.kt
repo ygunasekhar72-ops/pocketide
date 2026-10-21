@@ -68,7 +68,7 @@ class TerminalViewModelTest {
     @Test
     fun start_reflectsLifecycle_streamsOutput_andSendsStdin() = runTest {
         val handle = ScriptedHandle()
-        val viewModel = TerminalViewModel(tmp.root, { handle }, this)
+        val viewModel = TerminalViewModel(tmp.root, { handle }, backgroundScope)
         viewModel.start(null)
         advanceUntilIdle()
         assertEquals("running", viewModel.uiState.value.statusLabel)
@@ -88,7 +88,6 @@ class TerminalViewModelTest {
         advanceUntilIdle()
         assertEquals("exited (code 0)", viewModel.uiState.value.statusLabel)
         assertEquals(false, viewModel.uiState.value.live)
-        viewModel.onCleared()
     }
 
     @OptIn(ExperimentalCoroutinesApi::class)
@@ -96,31 +95,29 @@ class TerminalViewModelTest {
     fun start_inProjectDirectory_resolvesExistingProject() = runTest {
         val projectDir = tmp.newFolder("demo")
         val handle = ScriptedHandle()
-        val viewModel = TerminalViewModel(tmp.root, { handle }, this)
+        val viewModel = TerminalViewModel(tmp.root, { handle }, backgroundScope)
         viewModel.start("demo")
         advanceUntilIdle()
         assertEquals(projectDir.absolutePath, viewModel.uiState.value.cwdLabel)
         handle.connection.finish(0)
         advanceUntilIdle()
-        viewModel.onCleared()
     }
 
     @OptIn(ExperimentalCoroutinesApi::class)
     @Test
     fun sendCommand_beforeStart_isDropped() = runTest {
         val handle = ScriptedHandle()
-        val viewModel = TerminalViewModel(tmp.root, { handle }, this)
+        val viewModel = TerminalViewModel(tmp.root, { handle }, backgroundScope)
         viewModel.sendCommand("ls")
         advanceUntilIdle()
         assertEquals(0, handle.connection.writes.size)
-        viewModel.onCleared()
     }
 
     @OptIn(ExperimentalCoroutinesApi::class)
     @Test
     fun resize_reachesOnlyLiveSession() = runTest {
         val handle = ScriptedHandle()
-        val viewModel = TerminalViewModel(tmp.root, { handle }, this)
+        val viewModel = TerminalViewModel(tmp.root, { handle }, backgroundScope)
         viewModel.resize(40, 100)
         advanceUntilIdle()
         assertEquals("no session: nothing to resize", 0, handle.connection.resizes.size)
@@ -136,14 +133,13 @@ class TerminalViewModelTest {
         viewModel.resize(24, 80)
         advanceUntilIdle()
         assertEquals("terminal session: no resize", 1, handle.connection.resizes.size)
-        viewModel.onCleared()
     }
 
     @OptIn(ExperimentalCoroutinesApi::class)
     @Test
     fun rendererBuffer_headTrimsBeyondTheBound() = runTest {
         val handle = ScriptedHandle()
-        val viewModel = TerminalViewModel(tmp.root, { handle }, this)
+        val viewModel = TerminalViewModel(tmp.root, { handle }, backgroundScope)
         viewModel.start(null)
         advanceUntilIdle()
 
@@ -159,14 +155,13 @@ class TerminalViewModelTest {
 
         handle.connection.finish(0)
         advanceUntilIdle()
-        viewModel.onCleared()
     }
 
     @OptIn(ExperimentalCoroutinesApi::class)
     @Test
     fun clear_emptiesOnlyTheRenderBuffer() = runTest {
         val handle = ScriptedHandle()
-        val viewModel = TerminalViewModel(tmp.root, { handle }, this)
+        val viewModel = TerminalViewModel(tmp.root, { handle }, backgroundScope)
         viewModel.start(null)
         advanceUntilIdle()
         handle.connection.emit("before")
@@ -182,6 +177,5 @@ class TerminalViewModelTest {
 
         handle.connection.finish(0)
         advanceUntilIdle()
-        viewModel.onCleared()
     }
 }

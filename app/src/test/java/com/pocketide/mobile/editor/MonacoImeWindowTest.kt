@@ -35,7 +35,7 @@ class MonacoImeWindowTest {
     @Test
     fun `replacement covers the maximal subpart`() {
         val edit = MonacoImeWindows.extractWindowEdit("abXYc", "abZwfWc", 7)
-        assertEquals(MonacoImeWindowEdit(9, 2, "Zwf"), edit)
+        assertEquals(MonacoImeWindowEdit(9, 2, "ZwfW"), edit)
     }
 
     @Test

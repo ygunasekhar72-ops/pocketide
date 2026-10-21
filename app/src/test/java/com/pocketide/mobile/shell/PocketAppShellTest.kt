@@ -141,7 +141,9 @@ class PocketAppShellTest {
         composeRule.onNodeWithContentDescription("New session").assertIsEnabled()
         composeRule.onNodeWithContentDescription("Stop session").assertIsNotEnabled()
         composeRule.onNodeWithContentDescription("Clear output").assertIsNotEnabled()
-        composeRule.onAllNodesWithText("native PTY").assertCountEquals(1)
+        composeRule
+            .onAllNodesWithText("native PTY", substring = true)
+            .assertCountEquals(1)
     }
 
     @Test

@@ -272,6 +272,9 @@ class PtySessionTest {
         // owns authoritative validation, the scripted transport mirrors it.
         assertTrue(!session.resize(0, 24))
         assertEquals(listOf(80 to 24, 0 to 24), handle.connection.resizes)
+
+        handle.connection.finish(0)
+        advanceUntilIdle()
     }
 
     @Test

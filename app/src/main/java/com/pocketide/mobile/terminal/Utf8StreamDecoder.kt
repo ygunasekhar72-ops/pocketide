@@ -46,7 +46,7 @@ class Utf8StreamDecoder {
             } else {
                 val lead = leadByteLength(b)
                 when {
-                    lead == 0 -> i++ // invalid lead byte: replacement
+                    lead == 0 -> { out.append(INVALID); i++ } // invalid lead byte: replacement
                     lead == 1 -> { out.appendCodePoint(b.toInt() and 0x7F); i++ }
                     else -> {
                         pending.add(b)

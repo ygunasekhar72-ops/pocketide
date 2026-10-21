@@ -1,6 +1,16 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
+    <!-- Termux RUN_COMMAND integration (T3/system): sender must hold this
+         app-level permission, declared by the Termux app. -->
+    <uses-permission android:name="com.termux.permission.RUN_COMMAND" />
+
+    <!-- Package-visibility (Android 11+): PocketIDE must be allowed to probe
+         whether the Termux app is installed and address it explicitly. -->
+    <queries>
+        <package android:name="com.termux" />
+    </queries>
+
     <application
         android:label="@string/app_name"
         android:icon="@mipmap/ic_launcher"

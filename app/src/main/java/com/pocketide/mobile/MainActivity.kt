@@ -25,12 +25,16 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import com.pocketide.mobile.assistant.AssistantScreen
 import com.pocketide.mobile.editor.EditorScreen
+import com.pocketide.mobile.editor.EditorViewModel
+import com.pocketide.mobile.editor.MonacoEditorStore
 import com.pocketide.mobile.home.HomeScreen
 import com.pocketide.mobile.home.HomeViewModel
 import com.pocketide.mobile.home.data.ProjectRepository
 import com.pocketide.mobile.home.data.Workspace
 import com.pocketide.mobile.settings.SettingsScreen
+import com.pocketide.mobile.terminal.PtyLinuxHandle
 import com.pocketide.mobile.terminal.TerminalScreen
+import com.pocketide.mobile.terminal.TerminalViewModel
 import com.pocketide.mobile.ui.navigation.NavigationState
 import com.pocketide.mobile.ui.navigation.PocketDestination
 import com.pocketide.mobile.ui.shell.PocketBottomNav
@@ -40,6 +44,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import kotlinx.coroutines.launch
+import java.io.File
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -73,6 +78,29 @@ private fun PocketIDEApp() {
     val homeViewModel: HomeViewModel = viewModel(
         factory = viewModelFactory {
             initializer { HomeViewModel(repository) }
+        }
+    )
+
+    val editorViewModel: EditorViewModel = viewModel(
+        factory = viewModelFactory {
+            initializer {
+                EditorViewModel(
+                    MonacoEditorStore(
+                        File(context.filesDir, "editor-docs")
+                    )
+                )
+            }
+        }
+    )
+
+    val terminalViewModel: TerminalViewModel = viewModel(
+        factory = viewModelFactory {
+            initializer {
+                TerminalViewModel(
+                    workspaceRoot = repository.root,
+                    newHandle = { PtyLinuxHandle() }
+                )
+            }
         }
     )
 
@@ -117,8 +145,14 @@ private fun PocketIDEApp() {
                     onMessage = deliverMessage,
                     onRetry = { homeViewModel.refresh() }
                 )
-                PocketDestination.Editor -> EditorScreen(projectName = selectedProject)
-                PocketDestination.Terminal -> TerminalScreen(projectName = selectedProject)
+                PocketDestination.Editor -> EditorScreen(
+                    projectName = selectedProject,
+                    viewModel = editorViewModel
+                )
+                PocketDestination.Terminal -> TerminalScreen(
+                    projectName = selectedProject,
+                    viewModel = terminalViewModel
+                )
                 PocketDestination.Assistant -> AssistantScreen(
                     projectName = selectedProject,
                     onNavigateToSettings = { navigation.switchTo(PocketDestination.Settings) }

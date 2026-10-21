@@ -29,6 +29,8 @@ class PtySessionTest {
         override val output = Channel<ByteArray>(Channel.UNLIMITED)
         val writes = mutableListOf<ByteArray>()
         val requestExitCalls = mutableListOf<Int>()
+        val resizes = mutableListOf<Pair<Int, Int>>()
+        var resizeFailure: Exception? = null
         var destroyCalls = 0
         private val exitSignal = CompletableDeferred<Int>()
 
@@ -38,6 +40,12 @@ class PtySessionTest {
 
         override suspend fun requestExit() {
             requestExitCalls.add(requestExitCalls.size)
+        }
+
+        override suspend fun resize(rows: Int, cols: Int): Boolean {
+            resizes.add(rows to cols)
+            resizeFailure?.let { throw it }
+            return rows in 1..2048 && cols in 1..2048
         }
 
         override suspend fun awaitExit(): Int = exitSignal.await()
@@ -247,5 +255,57 @@ class PtySessionTest {
         assertEquals("exactly-once destroy on scope cancellation",
             1, handle.connection.destroyCalls)
         outer.cancel(null)
+    }
+
+    @Test
+    fun resize_propagatesToLiveConnection_includingFailingBounds() = runTest {
+        val handle = ScriptedHandle()
+        val session = newSession(handle)
+        collectToString(session)
+        session.start(spec)
+        advanceUntilIdle()
+
+        assertTrue(session.resize(80, 24))
+        assertEquals(listOf(80 to 24), handle.connection.resizes)
+
+        // Out-of-bounds values still REACH the transport: the native side
+        // owns authoritative validation, the scripted transport mirrors it.
+        assertTrue(!session.resize(0, 24))
+        assertEquals(listOf(80 to 24, 0 to 24), handle.connection.resizes)
+    }
+
+    @Test
+    fun resize_onNotStartedOrTerminatedSession_returnsFalseWithoutPropagation() = runTest {
+        val handle = ScriptedHandle()
+        val session = newSession(handle)
+        collectToString(session)
+
+        assertTrue(!session.resize(80, 24))
+        assertEquals(0, handle.connection.resizes.size)
+
+        session.start(spec)
+        advanceUntilIdle()
+        handle.connection.finish(0)
+        advanceUntilIdle()
+
+        assertTrue(!session.resize(80, 24))
+        assertEquals(0, handle.connection.resizes.size)
+    }
+
+    @Test
+    fun resize_transportErrorsAreAbsorbedAsFalse() = runTest {
+        val handle = ScriptedHandle()
+        val session = newSession(handle)
+        collectToString(session)
+        session.start(spec)
+        advanceUntilIdle()
+        handle.connection.resizeFailure = IllegalStateException("winsize ioctl failed")
+
+        assertTrue(!session.resize(80, 24))
+        // The attempt still reached the transport exactly once.
+        assertEquals(listOf(80 to 24), handle.connection.resizes)
+
+        handle.connection.finish(0)
+        advanceUntilIdle()
     }
 }

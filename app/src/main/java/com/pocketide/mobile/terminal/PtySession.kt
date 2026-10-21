@@ -132,6 +132,26 @@ class PtySession(
         runCatching { conn.write(bytes) }
     }
 
+    /**
+     * Propagates a pty window resize to the live session. Returns false
+     * (no propagation) when the session is not live or the transport cannot
+     * resize; errors on the propagating connection are absorbed to mirror
+     * the engine's drop-late-write semantics.
+     */
+    suspend fun resize(rows: Int, cols: Int): Boolean {
+        val live = when (_state.value) {
+            PtySessionState.Running, PtySessionState.Stopping -> true
+            else -> false
+        }
+        if (!live) return false
+        val conn = connection ?: return false
+        return try {
+            conn.resize(rows, cols)
+        } catch (e: Exception) {
+            false
+        }
+    }
+
     /** Visible for tests; also used by callers shutting the owning scope down prematurely. */
     fun cancelJob() {
         sessionJob?.cancel()

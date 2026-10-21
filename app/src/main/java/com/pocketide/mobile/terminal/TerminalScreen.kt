@@ -2,16 +2,20 @@ package com.pocketide.mobile.terminal
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Send
-import androidx.compose.material.icons.filled.Add
 import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -21,49 +25,57 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.text.style.TextOverflow
 import com.pocketide.mobile.ui.components.EmptyState
 import com.pocketide.mobile.ui.components.MilestoneBadge
 import com.pocketide.mobile.ui.theme.PocketMonoFont
 
 /**
- * Terminal surface foundation (session header, output area, input row,
- * session controls). No PTY, no execution, no simulated output — the engine
- * connects in M1 and these hooks receive the real session state then.
+ * Interactive terminal (M2): the real [PtySession] engine (own JNI PTY +
+ * Android mksh) rendered as a bounded text stream with live input, session
+ * start/stop and pty resize propagation. No engine simulation happens here;
+ * a vt100-style ANSI renderer is a later-phase upgrade (see
+ * [TerminalViewModel] notes and the M2 device criteria in the report).
  */
 @Composable
-fun TerminalScreen(projectName: String?) {
-    TerminalContent(projectName = projectName)
-}
-
-@Composable
-fun TerminalContent(projectName: String?, modifier: Modifier = Modifier) {
-    Column(modifier = modifier.fillMaxSize()) {
-        SessionHeader(projectName = projectName)
+fun TerminalScreen(
+    projectName: String?,
+    viewModel: TerminalViewModel
+) {
+    val ui by viewModel.uiState.collectAsState()
+    Column(modifier = Modifier.fillMaxSize()) {
+        SessionHeader(projectName = projectName, ui = ui)
         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-        Box(Modifier.weight(1f)) {
-            EmptyState(
-                title = "No terminal session",
-                description = "The terminal engine (real PTY shell) connects in M1. Nothing is simulated here.",
-                symbol = ">_",
-                badge = { MilestoneBadge("engine · M1") }
-            )
-        }
-        CommandInputBar(enabled = false)
+        OutputArea(
+            ui = ui,
+            onResize = { rows, cols -> viewModel.resize(rows, cols) }
+        )
+        CommandInputBar(
+            enabled = ui.live,
+            onSend = viewModel::sendCommand
+        )
         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-        SessionControlBar()
+        SessionControlBar(
+            ui = ui,
+            onStart = { viewModel.start(projectName) },
+            onStop = viewModel::stop,
+            onClear = viewModel::clear
+        )
     }
 }
 
 @Composable
-private fun SessionHeader(projectName: String?) {
+private fun SessionHeader(projectName: String?, ui: TerminalUiState) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -72,12 +84,12 @@ private fun SessionHeader(projectName: String?) {
     ) {
         Column(Modifier.weight(1f)) {
             Text(
-                text = "session 0",
+                text = if (ui.live) "mksh session" else "session",
                 fontFamily = PocketMonoFont,
                 style = MaterialTheme.typography.labelLarge
             )
             Text(
-                text = projectName ?: "workspace",
+                text = ui.cwdLabel.ifEmpty { projectName ?: "workspace" },
                 fontFamily = PocketMonoFont,
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -85,12 +97,69 @@ private fun SessionHeader(projectName: String?) {
                 overflow = TextOverflow.Ellipsis
             )
         }
-        MilestoneBadge("not connected")
+        MilestoneBadge(ui.statusLabel)
+    }
+}
+
+/**
+ * Bounded text render viewport. Emits pty resize propagation derived from
+ * the actual layout box (mono font metrics approximated; the native side
+ * validates bounds). ANSI escape sequences render verbatim at this PoC.
+ */
+@Composable
+private fun OutputArea(
+    ui: TerminalUiState,
+    onResize: (rows: Int, cols: Int) -> Unit
+) {
+    BoxWithConstraints(Modifier.weight(1f)) {
+        if (ui.text.isEmpty() && !ui.live) {
+            EmptyState(
+                title = "No terminal session",
+                description = "Start with ▶ run a real mksh session in the PTY. Nothing is simulated.",
+                symbol = ">_",
+                badge = { MilestoneBadge("engine · native PTY") }
+            )
+        } else {
+            val scroll = rememberScrollState()
+            LaunchedEffect(ui.text.length) {
+                scroll.animateScrollTo(scroll.maxValue)
+            }
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .verticalScroll(scroll)
+            ) {
+                Text(
+                    text = ui.text,
+                    style = MaterialTheme.typography.bodySmall.copy(
+                        fontFamily = PocketMonoFont,
+                        color = MaterialTheme.colorScheme.onSurface
+                    ),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 8.dp)
+                )
+            }
+        }
+        val density = LocalDensity.current
+        LaunchedEffect(
+            maxHeight, maxWidth, ui.live
+        ) {
+            if (!ui.live) return@LaunchedEffect
+            val lineHeightPx = with(density) { 16.dp.toPx() }
+            val charWidthPx = with(density) { 7.3.dp.toPx() }
+            val rows = (maxHeight.toPx() / lineHeightPx).toInt().coerceIn(1, 2048)
+            val cols = (maxWidth.toPx() / charWidthPx).toInt().coerceIn(1, 2048)
+            onResize(rows, cols)
+        }
     }
 }
 
 @Composable
-private fun CommandInputBar(enabled: Boolean) {
+private fun CommandInputBar(
+    enabled: Boolean,
+    onSend: (String) -> Unit
+) {
     var draft by rememberSaveable { mutableStateOf("") }
     Row(
         modifier = Modifier
@@ -105,12 +174,18 @@ private fun CommandInputBar(enabled: Boolean) {
             modifier = Modifier.weight(1f),
             enabled = enabled,
             singleLine = true,
-            label = { Text(if (enabled) "Command" else "Command input · connects in M1") },
+            label = { Text(if (enabled) "Command" else "Command input (start a session)") },
             placeholder = {
                 Text("$ ", fontFamily = PocketMonoFont, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         )
-        IconButton(onClick = {}, enabled = enabled) {
+        IconButton(
+            onClick = {
+                onSend(draft)
+                draft = ""
+            },
+            enabled = enabled && draft.isNotEmpty()
+        ) {
             Icon(
                 imageVector = Icons.Filled.Send,
                 contentDescription = "Send command"
@@ -119,9 +194,13 @@ private fun CommandInputBar(enabled: Boolean) {
     }
 }
 
-/** Clear/stop are real controls wired to an engine that does not exist yet — disabled on purpose. */
 @Composable
-private fun SessionControlBar() {
+private fun SessionControlBar(
+    ui: TerminalUiState,
+    onStart: () -> Unit,
+    onStop: () -> Unit,
+    onClear: () -> Unit
+) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -129,14 +208,17 @@ private fun SessionControlBar() {
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        FilledTonalIconButton(onClick = {}, enabled = false, modifier = Modifier.size(40.dp)) {
-            Icon(Icons.Filled.Add, contentDescription = "New session")
+        FilledTonalIconButton(onClick = onStart, enabled = !ui.live, modifier = Modifier.size(40.dp)) {
+            Icon(Icons.Filled.PlayArrow, contentDescription = "New session")
         }
-        FilledTonalIconButton(onClick = {}, enabled = false, modifier = Modifier.size(40.dp)) {
+        FilledTonalIconButton(onClick = onStop, enabled = ui.live, modifier = Modifier.size(40.dp)) {
             Icon(Icons.Filled.Close, contentDescription = "Stop session")
         }
+        FilledTonalIconButton(onClick = onClear, enabled = ui.text.isNotEmpty(), modifier = Modifier.size(40.dp)) {
+            Icon(Icons.Filled.Delete, contentDescription = "Clear output")
+        }
         Text(
-            text = "New session · Stop · Clear activate with the M1 terminal engine",
+            text = if (ui.live) "live mksh in the native PTY" else "press ▶ to start a session",
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )

@@ -101,6 +101,19 @@ class PtyLinuxConnection internal constructor(
         }
     }
 
+    override suspend fun resize(rows: Int, cols: Int): Boolean {
+        val rc = withContext(Dispatchers.IO) {
+            PtyBridge.nativeResize(nativeHandle, rows, cols)
+        }
+        when (rc) {
+            0 -> return true
+            -2 -> Log.i(TAG, "resize ignored stale handle $nativeHandle")
+            -3 -> Log.i(TAG, "resize ioctl failed for handle $nativeHandle")
+            -4 -> return false
+        }
+        return false
+    }
+
     override suspend fun requestExit() {
         withContext(Dispatchers.IO) {
             PtyBridge.nativeRequestExit(nativeHandle)

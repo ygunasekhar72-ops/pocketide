@@ -38,6 +38,14 @@ object PtyBridge {
     /** Returns delivered byte count; silently drops when handle is stale. */
     external fun nativeWrite(handle: Long, bytes: ByteArray): Int
 
+    /**
+     * Propagates a window resize to the pty master (TIOCSWINSZ; the kernel
+     * delivers SIGWINCH to the foreground process group). Conventions:
+     * 0 ok; -2 stale handle; -3 ioctl failure; -4 arguments outside
+     * [1, 2048] (rows/cols).
+     */
+    external fun nativeResize(handle: Long, rows: Int, cols: Int): Int
+
     /** SIGHUP to the session leader; repeat-tolerant; -1 for stale handle. */
     external fun nativeRequestExit(handle: Long): Int
 

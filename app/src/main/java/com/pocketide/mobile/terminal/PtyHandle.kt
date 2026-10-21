@@ -47,6 +47,16 @@ interface PtyConnection {
     suspend fun awaitExit(): Int
 
     /**
+     * Propagates a window resize to the child's pty (rows/cols in
+     * [1, 2048]; invalid values are rejected and reported as false).
+     * Backends without resize support no-op and report false. Safe to
+     * call in any live state as long as the engine's session is the
+     * owner; rejected (not dropped silently) so callers cannot assume
+     * propagation that never happened.
+     */
+    suspend fun resize(rows: Int, cols: Int): Boolean = false
+
+    /**
      * Releases every native resource of this connection (closes master fd,
      * reaps the child). MUST be idempotent and MUST be invoked exactly once per
      * successful [PtyHandle.open] by the engine; never after a failed open.

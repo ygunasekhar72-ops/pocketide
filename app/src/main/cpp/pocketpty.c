@@ -65,6 +65,9 @@
 #define PT_SIGHUP_GRACE_MS 1000
 #define PT_SIGKILL_GRACE_MS 2000
 
+#define PT_MAX_ROWS 2048
+#define PT_MAX_COLS 2048
+
 static const char *POCKETPTY_VERSION = "pocketpty 1.0.0-p3";
 
 typedef enum {
@@ -768,6 +771,36 @@ Java_com_pocketide_mobile_terminal_PtyBridge_nativeRequestExit(JNIEnv *env, jcla
     }
     pthread_mutex_unlock(&s->mu);
     return 0;
+}
+
+/*
+ * Propagates a window resize to the pty (ioctl TIOCSWINSZ on the master).
+ * The kernel delivers SIGWINCH to the session leader's foreground process
+ * group automatically. Codes: 0 ok; -2 stale handle; -3 ioctl failure;
+ * -4 rejected arguments (rows/cols outside [1, PT_MAX_ROWS//COLS]).
+ * Called under the slot mutex: resize is a single ioctl, cheap.
+ */
+JNIEXPORT jint JNICALL
+Java_com_pocketide_mobile_terminal_PtyBridge_nativeResize(JNIEnv *env, jclass clazz,
+                                                          jlong handle, jint rows, jint cols)
+{
+    (void)env; (void)clazz;
+    pt_slot_t *s = pt_lookup_locked(handle);
+    if (!s) return -2;
+    int rc = 0;
+    if (rows < 1 || rows > PT_MAX_ROWS || cols < 1 || cols > PT_MAX_COLS) {
+        rc = -4;
+    } else {
+        struct winsize ws;
+        memset(&ws, 0, sizeof(ws));
+        ws.ws_row = (unsigned short)rows;
+        ws.ws_col = (unsigned short)cols;
+        ws.ws_xpixel = 0;
+        ws.ws_ypixel = 0;
+        if (ioctl(s->master, TIOCSWINSZ, &ws) != 0) rc = -3;
+    }
+    pthread_mutex_unlock(&s->mu);
+    return rc;
 }
 
 /* Blocks until the child is reaped; returns the exit-code mapping. */

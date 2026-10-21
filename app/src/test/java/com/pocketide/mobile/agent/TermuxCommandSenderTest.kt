@@ -484,9 +484,11 @@ class TermuxCommandSenderTest {
         assertTrue(result is AgentCommandResult.Failure)
         val failure = asFailure(result)
         assertEquals(FailureCode.INVALID_SPEC, failure.code)
+        val detail = failure.detail
+        assertTrue("failure must carry a detail", detail != null)
         assertTrue(
-            "path policy must be the FIRST validator to fire: ${failure.detail}",
-            failure.detail.contains("path policy")
+            "path policy must be the FIRST validator to fire: $detail",
+            detail!!.contains("path policy")
         )
         assertEquals(0, transport.dispatches.size)
         assertNull(

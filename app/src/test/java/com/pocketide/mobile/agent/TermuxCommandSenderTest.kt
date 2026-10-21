@@ -371,4 +371,87 @@ class TermuxCommandSenderTest {
             transport.dispatches.single().executablePath == "/bin/echo"
         )
     }
+
+    /**
+     * M1-T4: argument-level classification refines WHY approval is needed and
+     * how decisions bind, but the dispatch boundary contract is unchanged:
+     * nothing unapproved reaches the transport, and an approved exact shape
+     * still runs the verbatim argument list.
+     */
+    @Test
+    fun `argument rule requires approval and dispatch is refused before it is granted`() = runTest {
+        val registry = AgentCommandRegistry()
+        registerEcho(registry, args = listOf("--dangerous"))
+        val transport = FakeTransport()
+        val gate = AgentApprovalGate(
+            ApprovalPolicy(
+                sensitiveArgumentRules = listOf(
+                    SensitiveArgumentRule("/bin/echo", listOf("--dangerous"), SensitiveOp.PROCESS_MANAGEMENT)
+                )
+            )
+        )
+        val sender = TermuxCommandSender(FakeEnvironment(), registry, gate, transport)
+        val spec = echoSpec(args = listOf("--dangerous"))
+
+        val refused = sender.dispatch(spec)
+        assertTrue(refused is AgentCommandResult.Failure)
+        assertEquals(FailureCode.INVALID_SPEC, asFailure(refused).code)
+        assertEquals(0, transport.dispatches.size)
+
+        gate.recordUserDecision(spec, approved = true)
+        transport.respondWith = payloadView(
+            mapOf(
+                TermuxPluginConstants.RESULT_BUNDLE_KEY_EXIT_CODE to 0,
+                TermuxPluginConstants.RESULT_BUNDLE_KEY_STDOUT to "ok"
+            )
+        )
+        val approvedRun = sender.dispatch(spec)
+        assertTrue(approvedRun is AgentCommandResult.Success)
+        val sent = transport.dispatches.single()
+        assertEquals(listOf("--dangerous"), sent.arguments)
+    }
+
+    @Test
+    fun `argument rule basis divergence restarts approval after tuning`() = runTest {
+        val registry = AgentCommandRegistry()
+        registerEcho(registry, args = listOf("--dangerous"))
+        val transport = FakeTransport()
+        val rule = SensitiveArgumentRule("/bin/echo", listOf("--dangerous"), SensitiveOp.PROCESS_MANAGEMENT)
+        val ledger = AgentDecisionLedger()
+        val gate = AgentApprovalGate(ApprovalPolicy(sensitiveArgumentRules = listOf(rule)), ledger)
+        val sender = TermuxCommandSender(FakeEnvironment(), registry, gate, transport)
+        val spec = echoSpec(args = listOf("--dangerous"))
+        gate.recordUserDecision(spec, approved = true)
+
+        // Replay under unchanged policy: the exact shape and the exact basis
+        // still match, so the recorded approval is honored.
+        val replay = gate.evaluate(spec)
+        replay as ApprovalDecision.Approved
+        assertEquals(ApprovalOrigin.USER_DECISION, replay.origin)
+
+        // Trusted policy is retuned: a new rule is declared BEFORE the old
+        // one for the same shape, so the first-match classification basis the
+        // user decided on diverges. The approval must restart evaluation.
+        val gate2 = AgentApprovalGate(
+            ApprovalPolicy(
+                sensitiveArgumentRules = listOf(
+                    SensitiveArgumentRule("/bin/echo", listOf("--dangerous"), SensitiveOp.NETWORK_EGRESS),
+                    rule
+                )
+            ),
+            ledger
+        )
+        val replay2 = gate2.evaluate(spec)
+        replay2 as ApprovalDecision.ApprovalRequired
+        assertEquals(
+            ApprovalReason.Sensitive(SensitiveOp.NETWORK_EGRESS),
+            replay2.reason
+        )
+
+        val sender2 = TermuxCommandSender(FakeEnvironment(), registry, gate2, transport)
+        val refused = sender2.dispatch(spec)
+        assertTrue(refused is AgentCommandResult.Failure)
+        assertEquals(FailureCode.INVALID_SPEC, asFailure(refused).code)
+        assertEquals(0, transport.dispatches.size)
+    }
 }

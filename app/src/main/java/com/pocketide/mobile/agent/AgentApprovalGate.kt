@@ -26,15 +26,26 @@ package com.pocketide.mobile.agent
  *    reclassified policy restarts evaluation and fails closed.
  *  - Executable-identity classification is NOT sufficient to guard future
  *    arbitrary command execution: argument-level classification (e.g.
- *    `git status` vs `git push`) must precede any real dispatch in T3, or
- *    every non-safe command keeps requiring a real user decision.
+ *    `git status` vs `git push`) must precede any real dispatch, or
+ *    every non-safe command keeps requiring a real user decision. T4
+ *    implements that precondition: trusted [ApprovalPolicy] tables classify
+ *    (executable + positional argument prefix) at argument level when no
+ *    executable-table reason already applies. Rules can only RAISE a
+ *    verdict to approval-required; they never approve, never weaken the
+ *    executable tables, and always mask advisory model hints.
+ *  - Argument rules refine classification but cannot change approval
+ *    binding: a recorded approval still binds to the exact operation
+ *    (executable + argument list) and the classification basis it was
+ *    decided on; any divergence — including a re-armed rule — restarts
+ *    evaluation and fails closed.
  *
  * Reason precedence (deterministic): hard block (denied, not "required") >
  * sensitive-table classification > safe-exempt-with-model-hints >
  * AmbiguousExecutable (unknown identity).
  *
- * NOTE: classification is by executable identity only (deliberate); see the
- * documented T3 precondition on argument-level classification above.
+ * NOTE: classification is executable-identity plus argument-level (T4): see
+ * the reason precedence in [determineRequiredReason] and the rule semantics
+ * on [SensitiveArgumentRule].
  */
 class AgentApprovalGate(
     private val policy: ApprovalPolicy,
@@ -139,15 +150,27 @@ class AgentApprovalGate(
                 null // hard blocks are denied by policy, not put up for approval
 
             sensitiveOp != null ->
-                ApprovalReason.Sensitive(sensitiveOp) // own policy reason masks hints
+                ApprovalReason.Sensitive(sensitiveOp) // own policy reason masks argument rules and hints
 
             spec.executable in policy.safeExecutables ->
-                hintReason // otherwise-safe; model hints may still raise the bar
+                argumentReason(spec) ?: hintReason // argument policy above advisory hints
 
             else ->
-                hintReason ?: ApprovalReason.AmbiguousExecutable // unknown identity: fail closed
+                argumentReason(spec)
+                    ?: hintReason ?: ApprovalReason.AmbiguousExecutable // unknown identity: fail closed
         }
     }
+
+    /**
+     * Argument-level classification (T4 verdict refinement, not approval):
+     * the first rule whose exact (executable, positional argument prefix)
+     * match succeeds wins, mirroring the registry's prefix policy shape.
+     * No parsing, no shell semantics, no substring matching.
+     */
+    private fun argumentReason(spec: AgentCommandSpec): ApprovalReason? =
+        policy.sensitiveArgumentRules
+            .firstOrNull { it.matches(spec.executable, spec.args) }
+            ?.let { ApprovalReason.Sensitive(it.op) }
 }
 
 enum class ApprovalOrigin {
@@ -188,16 +211,65 @@ sealed interface ApprovalDecision {
 }
 
 /**
+ * Trusted argument-level classification rule (M1-T4). Created by trusted
+ * application code only — never derived from model text, the registry, or
+ * any model-supplied spec content:
+ *
+ *  - matching is EXACT: the executable identity by string equality and the
+ *    positional argument prefix by list equality ([matches]) — no parsing,
+ *    no globbing, no concatenation, no substring logic; a rule can never be
+ *    satisfied by argument contents that only "look like" the prefix;
+ *  - a matched rule raises the verdict to [ApprovalReason.Sensitive] with
+ *    the rule's named operation: it can make commands REQUIRE approval,
+ *    never the reverse — it cannot approve, exempt, or downgrade anything;
+ *  - rules are deterministic and ordered: the first matching rule in the
+ *    policy's declared order wins when several could apply;
+ *  - an executable-table classification (sensitive or hard-blocked) always
+ *    precedes rule matching, preserving the T2 fail-closed ordering; model
+ *    hints never override a matched rule.
+ */
+data class SensitiveArgumentRule(
+    val executable: String,
+    val requiredArgsPrefix: List<String>,
+    val op: SensitiveOp
+) {
+    /** Exact positional prefix match; shorter argument lists never match. */
+    fun matches(executable: String, args: List<String>): Boolean =
+        executable == this.executable &&
+            args.size >= requiredArgsPrefix.size &&
+            args.subList(0, requiredArgsPrefix.size) == requiredArgsPrefix
+
+    init {
+        require(executable.isNotEmpty() && !executable.contains(NUL)) {
+            "argument rule executable must be non-empty and NUL-free"
+        }
+        require(requiredArgsPrefix.isNotEmpty()) {
+            "argument rule must require at least one argument"
+        }
+        require(requiredArgsPrefix.none { it.contains(NUL) }) {
+            "argument rule prefix must be NUL-free"
+        }
+    }
+
+    private companion object {
+        const val NUL = '\u0000'
+    }
+}
+
+/**
  * Trusted classification tables. Keys are executable identity strings
  * (matched exactly, absolute paths preferred; a bare name such as "su" also
  * matches bare-name proposals deterministically). The tables must be
  * disjoint: an executable is either safe, sensitive (with one named
- * operation), or hard-blocked — never several.
+ * operation), or hard-blocked — never several. Argument-level rules
+ * ([sensitiveArgumentRules]) may reference any executable identity; the
+ * executable tables keep precedence over them per [SensitiveArgumentRule].
  */
 data class ApprovalPolicy(
     val safeExecutables: Set<String> = emptySet(),
     val sensitiveExecutables: Map<String, SensitiveOp> = emptyMap(),
-    val hardBlockedExecutables: Map<String, SensitiveOp> = emptyMap()
+    val hardBlockedExecutables: Map<String, SensitiveOp> = emptyMap(),
+    val sensitiveArgumentRules: List<SensitiveArgumentRule> = emptyList()
 ) {
     init {
         val sensitiveSafe = sensitiveExecutables.keys intersect safeExecutables
@@ -207,15 +279,18 @@ data class ApprovalPolicy(
         require(overlap.isEmpty()) {
             "an executable cannot be in more than one policy table: $overlap"
         }
+        // Defensive: every rule carries its own construction invariants; the
+        // list itself holds no cross-entry constraints beyond declaration
+        // order (first-match-wins is the documented deterministic policy).
     }
 
     companion object {
         /**
          * Shipped default, deliberately conservative to match actual shipped
-         * capability: NO executable is auto-approved (the app currently has
-         * no agent-execution path at all), and only genuinely privileged
-         * binaries are hard-blocked. The tables are extended solely by
-         * trusted code as real backend capabilities materialize.
+         * capability: NO executable is auto-approved and the argument-rule
+         * table is EMPTY until trusted code registers rules as real backend
+         * capabilities materialize; only genuinely privileged binaries are
+         * hard-blocked. The tables are extended solely by trusted code.
          */
         val DEFAULT = ApprovalPolicy(
             safeExecutables = emptySet(),
@@ -225,7 +300,8 @@ data class ApprovalPolicy(
                 "/system/xbin/su" to SensitiveOp.PRIVILEGED_EXECUTION,
                 "su" to SensitiveOp.PRIVILEGED_EXECUTION,
                 "pm" to SensitiveOp.PRIVILEGED_EXECUTION
-            )
+            ),
+            sensitiveArgumentRules = emptyList()
         )
     }
 }

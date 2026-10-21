@@ -69,3 +69,10 @@ Robolectric downloads android-all jars at test runtime (~100 MB, Gradle-cached).
   checksum recorded here; MIT license.
 - **M7 optional runtime**: Alpine aarch64 rootfs (official mirror) + proot,
   downloaded on-device at first run (not redistributed inside the APK).
+
+## Bundled assets (M2)
+
+| Component | Version | License | Source | Verified |
+|---|---|---|---|---|
+| monaco-editor (pinned bundle commit, `min/vs` subtree verbatim) | 0.57.0 | MIT | https://registry.npmjs.org/monaco-editor/-/monaco-editor-0.57.0.tgz | tarball sha256 `3ea1712fbacd3290cf4751007e3a5b57cc279767607812d4c3e57925fb0b05c2`; verified byte-for-byte against the registry-published `dist.integrity` sha512 before extraction (2026-10-21); provenance metadata committed at `app/src/main/assets/monaco/monaco-pinned.json` and re-verified by the runtime provenance test |
+| Monaco m.build embeds the TypeScript compiler (vs/language/typescript worker) | inside 0.57.0 | Apache-2.0 | typescriptlang.org | shipped only inside MS-compiled Monaco 0.57.0 build; no independent dependency coordinates added |

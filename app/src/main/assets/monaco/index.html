@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>PocketIDE Editor</title>
+<style>
+  html, body {
+    margin: 0; padding: 0; width: 100%; height: 100%;
+    background: #16161c; overflow: hidden;
+  }
+  #container { width: 100%; height: 100%; }
+</style>
+<script src="vs/loader.js"></script>
+</head>
+<body>
+<div id="container"></div>
+<script>
+(function () {
+  'use strict';
+  var BASE = location.href.substring(0, location.href.lastIndexOf('/') + 1);
+
+  require.config({
+    // Resolved relative to this page on https://appassets.androidplatform.net
+    paths: { vs: './vs' },
+    'vs/nls': { availableLanguages: {} }
+  });
+
+  // Monaco language workers run in real WebWorkers; in the Android WebView
+  // (and any non-file:// restricted origin) the standard pattern applies:
+  // point the worker at the bundled worker chunk through a blob wrapper that
+  // importScripts() the same-origin file. Verified on-device at M2 device
+  // acceptance; if workers cannot load, Monarch semantic highlighting,
+  // editing, save and the IME bridge still work (they run in the main
+  // thread) while IntelliSense degrades — never invalidates edits.
+  window.MonacoEnvironment = {
+    baseUrl: BASE,
+    getWorkerUrl: function () {
+      return URL.createObjectURL(new Blob(
+        ["self.MonacoEnvironment={baseUrl:'" + BASE + "'};" +
+         "importScripts('" + BASE + "vs/base/worker/workerMain.js');"],
+        { type: 'text/javascript' }
+      ));
+    }
+  };
+
+  require(['vs/editor/editor.main'], function () {
+    var root = document.getElementById('container');
+    var editor = monaco.editor.create(root, {
+      automaticLayout: true,
+      theme: 'vs-dark',
+      wordWrap: 'on',
+      minimap: { enabled: false },
+      scrollBeyondLastLine: false,
+      contextmenu: false,
+      fontSize: 14,
+      lineNumbers: 'on',
+      dragAndDrop: false,
+      readOnly: false
+    });
+
+    function hostReady() {
+      return typeof pocketIDEHost !== 'undefined' && pocketIDEHost !== null;
+    }
+    function reportWindow() {
+      if (!hostReady()) return;
+      var model = editor.getModel();
+      var cursor = model.getOffsetAt(editor.getPosition());
+      var start = Math.max(0, cursor - 512);
+      var end = Math.min(model.getValueLength(), cursor + 64);
+      var sliceStart = model.getPositionAt(start);
+      var sliceEnd = model.getPositionAt(end);
+      var text = model.getValueInRange({
+        startLineNumber: sliceStart.lineNumber,
+        startColumn: sliceStart.column,
+        endLineNumber: sliceEnd.lineNumber,
+        endColumn: sliceEnd.column
+      });
+      try {
+        pocketIDEHost.reportWindow(JSON.stringify({
+          windowStartOffset: start,
+          cursorInWindow: cursor - start,
+          text: text
+        }));
+      } catch (e) {}
+    }
+
+    editor.onDidChangeModelContent(function () { window.setTimeout(reportWindow, 0); });
+    editor.onDidChangeCursorPosition(function () { window.setTimeout(reportWindow, 0); });
+
+    window.pocketIDE = {
+      setContent: function (content, language) {
+        var model = editor.getModel();
+        if (language && language !== model.getLanguageId()) {
+          model = monaco.editor.createModel(content || '', language);
+          editor.setModel(model);
+        } else {
+          model.setValue(content || '');
+        }
+      },
+      setLanguage: function (language) {
+        if (language) {
+          monaco.editor.setModelLanguage(editor.getModel(), language);
+        }
+      },
+      reportContent: function () {
+        if (!hostReady()) return;
+        try {
+          pocketIDEHost.reportContent(JSON.stringify({
+            content: editor.getValue(),
+            language: editor.getModel().getLanguageId()
+          }));
+        } catch (e) {}
+      },
+      insertAtCursor: function (text) {
+        if (typeof text !== 'string' || text.length === 0) return;
+        var sel = editor.getSelection();
+        editor.executeEdits('pocketide', [{
+          range: sel || new monaco.Range(1, 1, 1, 1),
+          text: text,
+          forceMoveMarkers: true
+        }]);
+      },
+      moveCursor: function (dir) {
+        switch (dir) {
+          case 'left': editor.trigger('pocketide', 'cursorLeft', null); break;
+          case 'right': editor.trigger('pocketide', 'cursorRight', null); break;
+          case 'up': editor.trigger('pocketide', 'cursorUp', null); break;
+          case 'down': editor.trigger('pocketide', 'cursorDown', null); break;
+          default: break;
+        }
+      },
+      insertTab: function () {
+        editor.executeEdits('pocketide', [{
+          range: editor.getSelection() || new monaco.Range(1, 1, 1, 1),
+          text: '\t',
+          forceMoveMarkers: true
+        }]);
+      },
+      // IME-driver edit: model-offset anchored replace used by the Kotlin
+      // IME bridge (see docs/decisions/0002). Offsets use the same units as
+      // getOffsetAt/getPositionAt (UTF-16 code units across lines).
+      applyWindowEdit: function (offset, deleteCount, replacement) {
+        if (typeof offset !== 'number' || typeof deleteCount !== 'number' ||
+            !isFinite(offset) || !isFinite(deleteCount) ||
+            offset < 0 || deleteCount < 0) return;
+        var model = editor.getModel();
+        if (!model) return;
+        var len = model.getValueLength();
+        if (offset > len) return;
+        if (offset + deleteCount > len) deleteCount = len - offset;
+        var start = model.getPositionAt(offset);
+        var end = model.getPositionAt(offset + deleteCount);
+        editor.executeEdits('pocketide-ime', [{
+          range: new monaco.Range(
+            start.lineNumber, start.column, end.lineNumber, end.column
+          ),
+          text: typeof replacement === 'string' ? replacement : '',
+          forceMoveMarkers: true
+        }]);
+      },
+      editorEscape: function () {
+        editor.trigger('pocketide', 'cancelSelection', null);
+      }
+    };
+
+    // Initial handshake with the Kotlin host bridge.
+    if (hostReady()) {
+      try { pocketIDEHost.notifyReady('monaco-ready'); } catch (e) {}
+    } else {
+      // The interface object is added before loadUrl() in production; the
+      // retry covers unusual load orderings without ever throwing.
+      window.setTimeout(function () {
+        if (hostReady()) {
+          try { pocketIDEHost.notifyReady('monaco-ready'); } catch (e) {}
+        }
+      }, 50);
+    }
+  });
+})();
+</script>
+</body>
+</html>

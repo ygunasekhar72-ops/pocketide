@@ -1,0 +1,17 @@
+{
+  "bundledSubset": "package/min/vs (verbatim) + package/LICENSE",
+  "component": "monaco-editor",
+  "keyFileSha256": {
+    "vs/editor/editor.main.css": "9115051f221e50d33b7ca5710d3c2e473a7215a4adc12c2ddb46c52568f6b882",
+    "vs/editor/editor.main.js": "60b192eb811710dcc4090fddf63ac5365b46e538dc73c51b6a27c8eaffc48b12",
+    "vs/loader.js": "35b59df80b41a8b73bf1ceb159b44f040567c2ab53f4e77a3d002d9dc39d55d1"
+  },
+  "license": "MIT",
+  "note": "Pinned per docs/decisions/0002: the tarball above was fetched from the official npm registry and its integrity was verified against the registry-published dist.integrity value before extraction. Bundle contents ship verbatim from the pin; the runtime provenance test re-hashes key files (loader.js, editor/editor.main.js, editor/editor.main.css, monaco-pinned.json self-check) against pre-computed digests so CI fails if any pinned byte drifts. The TypeScript language worker embeds the TypeScript compiler (Apache-2.0).",
+  "npmIntegritySha512Base64": "5BkI9KGoqrNvBGUe15/QlZq3OooZ8WLg1AxTpaqHRCP3HNpzPPZKE2EDz8M7c+VRmCeUw1Brp4cx/PWm3kI/5A==",
+  "publisher": "Microsoft Corporation",
+  "sourceTarball": "https://registry.npmjs.org/monaco-editor/-/monaco-editor-0.57.0.tgz",
+  "tarballSha256": "3ea1712fbacd3290cf4751007e3a5b57cc279767607812d4c3e57925fb0b05c2",
+  "verified": "2026-10-21",
+  "version": "0.57.0"
+}

@@ -8,6 +8,7 @@ import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
+import androidx.core.content.ContextCompat
 
 /**
  * The only T3 code that touches Android runtime APIs; everything above it
@@ -88,22 +89,21 @@ class AndroidTermuxAgentTransport(context: Context) : TermuxEnvironment, TermuxT
             }
         }
         val filter = IntentFilter(RESULT_ACTION)
-        if (Build.VERSION.SDK_INT >= 33) {
-            appContext.registerReceiver(
-                receiver, filter, TermuxPluginConstants.PERMISSION_RUN_COMMAND,
-                Context.RECEIVER_EXPORTED
-            )
-        } else {
-            // 3-arg overload (receiverPermission) is available since API 1
-            // and deprecated only at 33: unambiguous at every supported
-            // level, and preserves the Termux receiver-permission gate.
-            @Suppress("DEPRECATION")
-            appContext.registerReceiver(
-                receiver,
-                filter,
-                TermuxPluginConstants.PERMISSION_RUN_COMMAND
-            )
-        }
+        // ContextCompat.registerReceiver(Context, BroadcastReceiver,
+        // IntentFilter, String broadcastPermission, @Nullable Handler
+        // scheduler, int flags) — available since core 1.9.0 (project pins
+        // 1.15.0) and dispatches per API level internally: the 33+ behind
+        // the exported flag is passed to the platform 5-arg form on 33+ and
+        // to the Handler permission form pre-33. Receiver permission and
+        // exported behavior are both preserved at every supported level.
+        ContextCompat.registerReceiver(
+            appContext,
+            receiver,
+            filter,
+            TermuxPluginConstants.PERMISSION_RUN_COMMAND,
+            null,
+            ContextCompat.RECEIVER_EXPORTED
+        )
 
         val resultIntent = buildResultDeliveryIntent(nonce)
         val pendingFlags = if (Build.VERSION.SDK_INT >= 31) {

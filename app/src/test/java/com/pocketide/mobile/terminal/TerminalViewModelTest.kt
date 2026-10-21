@@ -1,9 +1,11 @@
 package com.pocketide.mobile.terminal
 
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.channels.Channel
-import kotlinx.coroutines.test.advanceUntilIdle
+import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -18,6 +20,14 @@ import java.io.File
  * exit — plumbing, not a shell simulation). Validates stdin appending,
  * UTF-8 chunk-boundary text assembly, bounded renderer buffer, resize
  * propagation routing, and honest lifecycle labels.
+ *
+ * The VM runs on its OWN scope [CoroutineScope] over an
+ * UnconfinedTestDispatcher shared with the test scheduler: coroutines run
+ * eagerly and synchronously with the test body (backgroundScope cannot be
+ * used here, because advanceUntilIdle intentionally stops once only
+ * background-scope tasks remain). The scope is torn down per test through
+ * [TerminalViewModel.onCleared] — the same cancellation path the
+ * lifecycle owner takes.
  */
 class TerminalViewModelTest {
 
@@ -65,88 +75,84 @@ class TerminalViewModelTest {
     }
 
     @OptIn(ExperimentalCoroutinesApi::class)
+    private fun newViewModel(handle: ScriptedHandle): TerminalViewModel =
+        TerminalViewModel(
+            workspaceRoot = tmp.root,
+            newHandle = { handle },
+            scope = CoroutineScope(SupervisorJob() + UnconfinedTestDispatcher())
+        )
+
     @Test
     fun start_reflectsLifecycle_streamsOutput_andSendsStdin() = runTest {
         val handle = ScriptedHandle()
-        val viewModel = TerminalViewModel(tmp.root, { handle }, backgroundScope)
+        val viewModel = newViewModel(handle)
         viewModel.start(null)
-        advanceUntilIdle()
         assertEquals("running", viewModel.uiState.value.statusLabel)
         assertEquals(true, viewModel.uiState.value.live)
         assertEquals(tmp.root.absolutePath, viewModel.uiState.value.cwdLabel)
 
         handle.connection.emit("hel")
         handle.connection.emit("lo\n")
-        advanceUntilIdle()
         assertEquals("hello\n", viewModel.uiState.value.text)
 
         viewModel.sendCommand("ls -l")
-        advanceUntilIdle()
-        assertEquals(listOf("ls -l\n"), handle.connection.writes.map { it.decodeToString() })
+        assertEquals(
+            listOf("ls -l\n"),
+            handle.connection.writes.map { it.decodeToString() }
+        )
 
         handle.connection.finish(0)
-        advanceUntilIdle()
         assertEquals("exited (code 0)", viewModel.uiState.value.statusLabel)
         assertEquals(false, viewModel.uiState.value.live)
+        viewModel.onCleared()
     }
 
-    @OptIn(ExperimentalCoroutinesApi::class)
     @Test
     fun start_inProjectDirectory_resolvesExistingProject() = runTest {
         val projectDir = tmp.newFolder("demo")
         val handle = ScriptedHandle()
-        val viewModel = TerminalViewModel(tmp.root, { handle }, backgroundScope)
+        val viewModel = newViewModel(handle)
         viewModel.start("demo")
-        advanceUntilIdle()
         assertEquals(projectDir.absolutePath, viewModel.uiState.value.cwdLabel)
         handle.connection.finish(0)
-        advanceUntilIdle()
+        viewModel.onCleared()
     }
 
-    @OptIn(ExperimentalCoroutinesApi::class)
     @Test
     fun sendCommand_beforeStart_isDropped() = runTest {
         val handle = ScriptedHandle()
-        val viewModel = TerminalViewModel(tmp.root, { handle }, backgroundScope)
+        val viewModel = newViewModel(handle)
         viewModel.sendCommand("ls")
-        advanceUntilIdle()
         assertEquals(0, handle.connection.writes.size)
+        viewModel.onCleared()
     }
 
-    @OptIn(ExperimentalCoroutinesApi::class)
     @Test
     fun resize_reachesOnlyLiveSession() = runTest {
         val handle = ScriptedHandle()
-        val viewModel = TerminalViewModel(tmp.root, { handle }, backgroundScope)
+        val viewModel = newViewModel(handle)
         viewModel.resize(40, 100)
-        advanceUntilIdle()
         assertEquals("no session: nothing to resize", 0, handle.connection.resizes.size)
 
         viewModel.start(null)
-        advanceUntilIdle()
         viewModel.resize(40, 100)
-        advanceUntilIdle()
         assertEquals(listOf(40 to 100), handle.connection.resizes)
 
         handle.connection.finish(0)
-        advanceUntilIdle()
         viewModel.resize(24, 80)
-        advanceUntilIdle()
         assertEquals("terminal session: no resize", 1, handle.connection.resizes.size)
+        viewModel.onCleared()
     }
 
-    @OptIn(ExperimentalCoroutinesApi::class)
     @Test
     fun rendererBuffer_headTrimsBeyondTheBound() = runTest {
         val handle = ScriptedHandle()
-        val viewModel = TerminalViewModel(tmp.root, { handle }, backgroundScope)
+        val viewModel = newViewModel(handle)
         viewModel.start(null)
-        advanceUntilIdle()
 
         val big = "b".repeat(TerminalViewModel.MAX_BUFFER_CHARS + 64)
         handle.connection.emit(big)
         handle.connection.emit("|tail")
-        advanceUntilIdle()
 
         val text = viewModel.uiState.value.text
         assertEquals(TerminalViewModel.MAX_BUFFER_CHARS, text.length)
@@ -154,28 +160,27 @@ class TerminalViewModelTest {
         assertTrue(text.endsWith("|tail"))
 
         handle.connection.finish(0)
-        advanceUntilIdle()
+        viewModel.onCleared()
     }
 
-    @OptIn(ExperimentalCoroutinesApi::class)
     @Test
     fun clear_emptiesOnlyTheRenderBuffer() = runTest {
         val handle = ScriptedHandle()
-        val viewModel = TerminalViewModel(tmp.root, { handle }, backgroundScope)
+        val viewModel = newViewModel(handle)
         viewModel.start(null)
-        advanceUntilIdle()
         handle.connection.emit("before")
-        advanceUntilIdle()
         assertEquals("before", viewModel.uiState.value.text)
 
         viewModel.clear()
         assertEquals("", viewModel.uiState.value.text)
         assertEquals(true, viewModel.uiState.value.live)
         viewModel.sendCommand("echo hi")
-        advanceUntilIdle()
-        assertEquals(listOf("echo hi\n"), handle.connection.writes.map { it.decodeToString() })
+        assertEquals(
+            listOf("echo hi\n"),
+            handle.connection.writes.map { it.decodeToString() }
+        )
 
         handle.connection.finish(0)
-        advanceUntilIdle()
+        viewModel.onCleared()
     }
 }

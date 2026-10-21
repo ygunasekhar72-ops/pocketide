@@ -4,7 +4,7 @@ import android.app.PendingIntent
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Bundle
-import androidx.core.content.getParcelableExtra
+import androidx.core.content.IntentCompat
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import kotlinx.coroutines.Dispatchers
@@ -147,8 +147,10 @@ class AndroidTermuxAgentTransportTest {
         val sent = shadowOf(context).getBroadcastIntents().last()
         assertEquals(TermuxPluginConstants.ACTION_RUN_COMMAND, sent.action)
         assertEquals(TermuxPluginConstants.TERMUX_PACKAGE_NAME, sent.`package`)
-        val pending = sent.getParcelableExtra<PendingIntent>(
-            TermuxPluginConstants.EXTRA_RUN_COMMAND_PENDING_INTENT
+        val pending = IntentCompat.getParcelableExtra(
+            sent,
+            TermuxPluginConstants.EXTRA_RUN_COMMAND_PENDING_INTENT,
+            PendingIntent::class.java
         )
         assertNotNull(pending)
         // Construction type: a broadcast-backed PendingIntent shaped for

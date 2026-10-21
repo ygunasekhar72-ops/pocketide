@@ -94,9 +94,14 @@ class AndroidTermuxAgentTransport(context: Context) : TermuxEnvironment, TermuxT
                 Context.RECEIVER_EXPORTED
             )
         } else {
+            // 3-arg overload (receiverPermission) is available since API 1
+            // and deprecated only at 33: unambiguous at every supported
+            // level, and preserves the Termux receiver-permission gate.
             @Suppress("DEPRECATION")
             appContext.registerReceiver(
-                receiver, filter, TermuxPluginConstants.PERMISSION_RUN_COMMAND, null
+                receiver,
+                filter,
+                TermuxPluginConstants.PERMISSION_RUN_COMMAND
             )
         }
 

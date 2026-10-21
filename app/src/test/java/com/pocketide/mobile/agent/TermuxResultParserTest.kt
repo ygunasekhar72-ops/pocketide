@@ -45,6 +45,21 @@ class TermuxResultParserTest {
         TermuxResultParser.parse(raw(root)) as AgentCommandResult.Failure
 
     @Test
+    fun `a success payload yields a result usable under the sealed parent type`() {
+        // Verifies runtime subtype and variant discrimination. The
+        // compile-time inheritance check lives where it belongs: the
+        // AgentCommandResult.Success declaration and the parser's parent
+        // return type.
+        val underParent: AgentCommandResult = successResult(
+            TermuxPluginConstants.RESULT_BUNDLE_KEY_EXIT_CODE to 0,
+            TermuxPluginConstants.RESULT_BUNDLE_KEY_STDOUT to "ok"
+        )
+        assertTrue(underParent is AgentCommandResult.Success)
+        assertTrue(underParent !is AgentCommandResult.Failure)
+        assertTrue(underParent !is AgentCommandResult.Denied)
+    }
+
+    @Test
     fun `clean exit payload parses as success without truncation`() {
         val success = successResult(
             TermuxPluginConstants.RESULT_BUNDLE_KEY_EXIT_CODE to 0,

@@ -27,7 +27,7 @@ sealed class AgentCommandResult {
         val exitCode: Int,
         val stdoutOriginalLength: Int,
         val stderrOriginalLength: Int
-    ) {
+    ) : AgentCommandResult() {
         init {
             require(stdoutOriginalLength >= 0) { "stdoutOriginalLength must be >= 0" }
             require(stderrOriginalLength >= 0) { "stderrOriginalLength must be >= 0" }

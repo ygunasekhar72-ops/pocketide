@@ -57,6 +57,9 @@ import java.io.File
  *    [FailureCode.TERMUX_INTERNAL] with Termux's own errmsg as detail.
  *
  * REFUSED-SHAPE RULES (transport facts, not taste):
+ *  - executable paths must be an absolute path or exactly one of the two
+ *    Termux-documented expansion prefixes (`$PREFIX/`, `~/`), component-wise
+ *    free of ".",".." and empty segments ([TermuxExecutablePath]);
  *  - workdir is rejected ([FailureCode.INVALID_SPEC]): Termux cannot chdir
  *    into this app's private storage, and no shared-workspace contract
  *    exists yet;
@@ -174,10 +177,20 @@ class TermuxCommandSender(
     /**
      * Transport-fact validation (ordered, deterministic). Returns a Failure
      * verdict or null when the spec is dispatchable. Executable/args NUL and
-     * emptiness invariants are guaranteed by [AgentCommandSpec] itself.
+     * emptiness invariants are guaranteed by [AgentCommandSpec] itself; the
+     * executable path FORM (absolute or a documented Termux expansion
+     * prefix) is enforced HERE by [TermuxExecutablePath] before any trust
+     * decision — the deferred part of the T1 [AgentCommandSpec.executable]
+     * contract, now bound to the chosen concrete backend.
      */
-    private fun validateTransportShape(spec: AgentCommandSpec): AgentCommandResult.Failure? =
-        when {
+    private fun validateTransportShape(spec: AgentCommandSpec): AgentCommandResult.Failure? {
+        TermuxExecutablePath.errorFor(spec.executable)?.let { detail ->
+            return AgentCommandResult.Failure(
+                FailureCode.INVALID_SPEC,
+                "executable path rejected by the Termux backend path policy: $detail"
+            )
+        }
+        return when {
             spec.workdir != null -> AgentCommandResult.Failure(
                 FailureCode.INVALID_SPEC,
                 "workdir is not supported by this transport: Termux cannot chdir into this app's private storage"
@@ -196,6 +209,7 @@ class TermuxCommandSender(
 
             else -> null
         }
+    }
 
     private companion object {
         /** Conservative ceiling: stays far below Android binder transaction limits. */

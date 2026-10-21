@@ -3,6 +3,7 @@ package com.pocketide.mobile.agent
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -453,5 +454,90 @@ class TermuxCommandSenderTest {
         assertTrue(refused is AgentCommandResult.Failure)
         assertEquals(FailureCode.INVALID_SPEC, asFailure(refused).code)
         assertEquals(0, transport.dispatches.size)
+    }
+
+    /**
+     * M1-T5: the backend executable-path policy ([TermuxExecutablePath]) is
+     * part of transport-shape validation — the stage that must fail WITHOUT
+     * burning an approval record, touching the gate, or reaching the
+     * transport. A relative path would be resolved inside Termux's own app
+     * context in under-documented ways and is rejected fail-closed.
+     *
+     * The spec below violates BOTH the path policy AND the registry (its
+     * catalogId is never registered), so whichever validation ran FIRST
+     * owns the failure detail. The detail must name the path policy,
+     * proving path-shape validation precedes the trust tiers.
+     */
+    @Test
+    fun `relative executable path is rejected by the backend path policy before any trust decision`() = runTest {
+        val registry = AgentCommandRegistry()
+        registerEcho(registry)
+        val transport = FakeTransport()
+        val ledger = AgentDecisionLedger()
+        val gate = AgentApprovalGate(ApprovalPolicy.DEFAULT, ledger)
+        val sender = TermuxCommandSender(FakeEnvironment(), registry, gate, transport)
+
+        val result = sender.dispatch(
+            echoSpec(catalogId = "tpl-never-registered", executable = "echo")
+        )
+
+        assertTrue(result is AgentCommandResult.Failure)
+        val failure = asFailure(result)
+        assertEquals(FailureCode.INVALID_SPEC, failure.code)
+        assertTrue(
+            "path policy must be the FIRST validator to fire: ${failure.detail}",
+            failure.detail.contains("path policy")
+        )
+        assertEquals(0, transport.dispatches.size)
+        assertNull(
+            "a path-policy rejection must not burn a ledger record",
+            ledger.lookup("tpl-never-registered")
+        )
+    }
+
+    @Test
+    fun `path traversal out of an expansion root is rejected at the boundary`() = runTest {
+        val registry = AgentCommandRegistry()
+        registerEcho(registry)
+        val transport = FakeTransport()
+        val sender = newSender(registry = registry, transport = transport)
+
+        val result = sender.dispatch(
+            echoSpec(executable = "${'$'}PREFIX/../usr/bin/ls")
+        )
+
+        assertTrue(result is AgentCommandResult.Failure)
+        assertEquals(FailureCode.INVALID_SPEC, asFailure(result).code)
+        assertEquals(0, transport.dispatches.size)
+    }
+
+    @Test
+    fun `approved expansion-token path dispatches verbatim into the request`() = runTest {
+        val registry = AgentCommandRegistry()
+        // The registry binds catalogId <-> executable <-> args exactly, so
+        // the template must carry the exact expansion-token form under test.
+        registry.register(AgentCommandTemplate("tpl-prefix-echo", "${'$'}PREFIX/bin/echo", listOf("hello")))
+        val transport = FakeTransport()
+        transport.respondWith = payloadView(
+            mapOf(
+                TermuxPluginConstants.RESULT_BUNDLE_KEY_EXIT_CODE to 0,
+                TermuxPluginConstants.RESULT_BUNDLE_KEY_STDOUT to "ok"
+            )
+        )
+        val gate = AgentApprovalGate(ApprovalPolicy.DEFAULT)
+        val sender = TermuxCommandSender(FakeEnvironment(), registry, gate, transport)
+        val spec = echoSpec(
+            catalogId = "tpl-prefix-echo",
+            executable = "${'$'}PREFIX/bin/echo"
+        )
+        gate.recordUserDecision(spec, approved = true)
+
+        val result = sender.dispatch(spec)
+
+        assertTrue(result is AgentCommandResult.Success)
+        assertEquals(0, (result as AgentCommandResult.Success).exitCode)
+        val sent = transport.dispatches.single()
+        assertEquals("\$PREFIX/bin/echo", sent.executablePath)
+        assertEquals(listOf("hello"), sent.arguments)
     }
 }

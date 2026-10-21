@@ -15,7 +15,10 @@ import java.io.File
  *  - [executable]  model/advisor-supplied candidate. Must be non-blank and
  *    NUL-free here; whether it is an allowed absolute path (or an approved
  *    `$PREFIX/`/`~/` expansion token) is validated by trusted code later, when
- *    a concrete backend is chosen. T1 does NOT enforce absoluteness.
+ *    a concrete backend is chosen. T1 does NOT enforce absoluteness. The
+ *    first chosen backend (Termux RUN_COMMAND) now does: see
+ *    [TermuxExecutablePath], enforced at the dispatch boundary by
+ *    [TermuxCommandSender].
  *  - [args]        model/advisor-supplied. Kept verbatim: spaces, quotes and
  *    newlines inside arguments are legitimate values and are not restricted.
  *    NUL bytes are structurally invalid for every real exec path, so they are

@@ -81,8 +81,11 @@ class TermuxCommandSenderTest {
         catalogId = catalogId
     )
 
-    private fun registerEcho(registry: AgentCommandRegistry) {
-        registry.register(AgentCommandTemplate("tpl-echo", "/bin/echo", listOf("hello")))
+    private fun registerEcho(
+        registry: AgentCommandRegistry,
+        args: List<String> = listOf("hello")
+    ) {
+        registry.register(AgentCommandTemplate("tpl-echo", "/bin/echo", args))
     }
 
     private fun asFailure(result: AgentCommandResult): AgentCommandResult.Failure =
@@ -219,7 +222,10 @@ class TermuxCommandSenderTest {
     @Test
     fun `approved dispatch runs the exact approved shape with forced background`() = runTest {
         val registry = AgentCommandRegistry()
-        registerEcho(registry)
+        // The approval binds to the registered template shape, so the
+        // template itself must carry the exact arguments under verification;
+        // production validateProposal rejects any other shape (by design).
+        registerEcho(registry, args = listOf("hello world\n", "c\nd"))
         val transport = FakeTransport()
         transport.respondWith = payloadView(
             mapOf(

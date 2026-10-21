@@ -360,7 +360,7 @@ private val accessorySymbols = listOf("{", "}", "(", ")", "[", "]", "<", ">", ";
 /**
  * The hidden IME driver surface (decision 0002). The soft keyboard edits
  * the current Monaco window slice; every user-driven change is converted
- * to a model-anchored edit via [MonacoImeWindow.extractWindowEdit] and
+ * to a model-anchored edit via [MonacoImeWindows.extractWindowEdit] and
  * applied by the engine. Fresh windows pushed by the harness reset this
  * surface: the driver follows the model and never leads it.
  */
@@ -382,7 +382,7 @@ private fun ImeDriver(
                 val baseline = window.value
                 driverText = next
                 if (baseline == null || next == baseline.text) return@BasicTextField
-                val edit = MonacoImeWindow.extractWindowEdit(
+                val edit = MonacoImeWindows.extractWindowEdit(
                     windowBefore = baseline.text,
                     windowAfter = next,
                     windowStartOffset = baseline.windowStartOffset

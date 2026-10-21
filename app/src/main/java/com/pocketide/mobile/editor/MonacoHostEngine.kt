@@ -55,9 +55,9 @@ object MonacoProtocol {
         return MonacoContentPayload(content, language)
     }
 
-    /** Parses `reportWindow`; bounded via [MonacoImeWindow.MAX_WINDOW_CHARS]. */
+    /** Parses `reportWindow`; bounded via [MonacoImeWindows.MAX_WINDOW_CHARS]. */
     fun parseWindowPayload(raw: String): MonacoImeWindow? =
-        MonacoImeWindow.parseWindow(raw)
+        MonacoImeWindows.parseWindow(raw)
 
     // ---- outbound script builders ----
 
@@ -159,8 +159,14 @@ class MonacoHostEngine(
                 request: WebResourceRequest
             ): Boolean {
                 // Any URL outside https://appassets.androidplatform.net is
-                // untrusted-editor navigation and must not load.
-                return !WebViewAssetLoader.shouldInterceptRequestUrl(request.url)
+                // untrusted-editor navigation and must not load. (The
+                // asset-loader origin is also the only one whose subresource
+                // requests are ever answered, so file/remote URLs would both
+                // fail to load AND be blocked here.)
+                val url = request.url
+                return !(url.scheme == "https" &&
+                    url.host == "appassets.androidplatform.net" &&
+                    url.path != null && url.path!!.startsWith("/assets/"))
             }
         }
         // The bridge is injected BEFORE loadUrl so the harness handshake

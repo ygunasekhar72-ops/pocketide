@@ -58,7 +58,8 @@ fun TerminalScreen(
         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
         OutputArea(
             ui = ui,
-            onResize = { rows, cols -> viewModel.resize(rows, cols) }
+            onResize = { rows, cols -> viewModel.resize(rows, cols) },
+            modifier = Modifier.weight(1f)
         )
         CommandInputBar(
             enabled = ui.live,
@@ -109,9 +110,10 @@ private fun SessionHeader(projectName: String?, ui: TerminalUiState) {
 @Composable
 private fun OutputArea(
     ui: TerminalUiState,
-    onResize: (rows: Int, cols: Int) -> Unit
+    onResize: (rows: Int, cols: Int) -> Unit,
+    modifier: Modifier = Modifier
 ) {
-    BoxWithConstraints(Modifier.weight(1f)) {
+    BoxWithConstraints(modifier) {
         if (ui.text.isEmpty() && !ui.live) {
             EmptyState(
                 title = "No terminal session",
@@ -146,11 +148,13 @@ private fun OutputArea(
             maxHeight, maxWidth, ui.live
         ) {
             if (!ui.live) return@LaunchedEffect
-            val lineHeightPx = with(density) { 16.dp.toPx() }
-            val charWidthPx = with(density) { 7.3.dp.toPx() }
-            val rows = (maxHeight.toPx() / lineHeightPx).toInt().coerceIn(1, 2048)
-            val cols = (maxWidth.toPx() / charWidthPx).toInt().coerceIn(1, 2048)
-            onResize(rows, cols)
+            val rowsCols = with(density) {
+                val rowPx = 16.dp.toPx()
+                val colPx = 7.3.dp.toPx()
+                (maxHeight.toPx() / rowPx).toInt().coerceIn(1, 2048) to
+                    (maxWidth.toPx() / colPx).toInt().coerceIn(1, 2048)
+            }
+            onResize(rowsCols.first, rowsCols.second)
         }
     }
 }

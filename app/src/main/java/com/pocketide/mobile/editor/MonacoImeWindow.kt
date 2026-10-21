@@ -31,7 +31,7 @@ data class MonacoImeWindowEdit(
 )
 
 /**
- * Pure IME-window edit computation ([MonacoImeWindow], old -> new).
+ * Pure IME-window edit computation ([MonacoImeWindows], old -> new).
  *
  * The IME surfaces always edit the WINDOW text (what the user sees and
  * keys into); this object converts such edits to model-anchored edits:
@@ -44,7 +44,7 @@ data class MonacoImeWindowEdit(
  * `extractWindowEdit(old, new, windowStartOffset)` returns null for a
  * no-op pair, and is deterministic regardless of IME granularity.
  */
-object MonacoImeWindow {
+object MonacoImeWindows {
 
     fun extractWindowEdit(
         windowBefore: String,

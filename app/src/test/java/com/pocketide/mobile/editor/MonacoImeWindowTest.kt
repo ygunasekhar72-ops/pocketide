@@ -16,53 +16,53 @@ class MonacoImeWindowTest {
 
     @Test
     fun `insertion at the end of the window anchors at the tail`() {
-        val edit = MonacoImeWindow.extractWindowEdit("ab", "abx", 100)
+        val edit = MonacoImeWindows.extractWindowEdit("ab", "abx", 100)
         assertEquals(MonacoImeWindowEdit(102, 0, "x"), edit)
     }
 
     @Test
     fun `insertion in the middle anchors after the common prefix`() {
-        val edit = MonacoImeWindow.extractWindowEdit("abc", "abXYc", 50)
+        val edit = MonacoImeWindows.extractWindowEdit("abc", "abXYc", 50)
         assertEquals(MonacoImeWindowEdit(52, 0, "XY"), edit)
     }
 
     @Test
     fun `deletion in the middle replaces correctly`() {
-        val edit = MonacoImeWindow.extractWindowEdit("abXYc", "abc", 50)
+        val edit = MonacoImeWindows.extractWindowEdit("abXYc", "abc", 50)
         assertEquals(MonacoImeWindowEdit(52, 2, ""), edit)
     }
 
     @Test
     fun `replacement covers the maximal subpart`() {
-        val edit = MonacoImeWindow.extractWindowEdit("abXYc", "abZwfWc", 7)
+        val edit = MonacoImeWindows.extractWindowEdit("abXYc", "abZwfWc", 7)
         assertEquals(MonacoImeWindowEdit(9, 2, "Zwf"), edit)
     }
 
     @Test
     fun `full replacement of longs anchors at zero`() {
-        val edit = MonacoImeWindow.extractWindowEdit("aaa", "zzz", 0)
+        val edit = MonacoImeWindows.extractWindowEdit("aaa", "zzz", 0)
         assertEquals(MonacoImeWindowEdit(0, 3, "zzz"), edit)
     }
 
     @Test
     fun `full window rewrite anchors at the window start`() {
-        val edit = MonacoImeWindow.extractWindowEdit("a|", "|a", 5)
+        val edit = MonacoImeWindows.extractWindowEdit("a|", "|a", 5)
         assertEquals(MonacoImeWindowEdit(5, 2, "|a"), edit)
     }
 
     @Test
     fun `identical strings produce no edit`() {
-        assertNull(MonacoImeWindow.extractWindowEdit("same", "same", 0))
+        assertNull(MonacoImeWindows.extractWindowEdit("same", "same", 0))
     }
 
     @Test
     fun `negative window offset produces no edit`() {
-        assertNull(MonacoImeWindow.extractWindowEdit("a", "ax", -1))
+        assertNull(MonacoImeWindows.extractWindowEdit("a", "ax", -1))
     }
 
     @Test
     fun `multi-char composing blocks are one edit`() {
-        val edit = MonacoImeWindow.extractWindowEdit("void", "void main(", 0)
+        val edit = MonacoImeWindows.extractWindowEdit("void", "void main(", 0)
         assertEquals(MonacoImeWindowEdit(4, 0, " main("), edit)
     }
 
@@ -70,7 +70,7 @@ class MonacoImeWindowTest {
 
     @Test
     fun `well-formed window payload parses`() {
-        val window = MonacoImeWindow.parseWindow(
+        val window = MonacoImeWindows.parseWindow(
             """{"windowStartOffset":1234,"cursorInWindow":10,"text":"hello world"}"""
         )
         assertEquals(
@@ -81,15 +81,15 @@ class MonacoImeWindowTest {
 
     @Test
     fun `missing fields are rejected`() {
-        assertNull(MonacoImeWindow.parseWindow("""{"cursorInWindow":3,"text":"x"}"""))
-        assertNull(MonacoImeWindow.parseWindow("""{"windowStartOffset":3,"text":"x"}"""))
-        assertNull(MonacoImeWindow.parseWindow("""{"windowStartOffset":3,"cursorInWindow":3}"""))
+        assertNull(MonacoImeWindows.parseWindow("""{"cursorInWindow":3,"text":"x"}"""))
+        assertNull(MonacoImeWindows.parseWindow("""{"windowStartOffset":3,"text":"x"}"""))
+        assertNull(MonacoImeWindows.parseWindow("""{"windowStartOffset":3,"cursorInWindow":3}"""))
     }
 
     @Test
     fun `string fields typed as strings are rejected`() {
         assertNull(
-            MonacoImeWindow.parseWindow(
+            MonacoImeWindows.parseWindow(
                 """{"windowStartOffset":"3","cursorInWindow":3,"text":"x"}"""
             )
         )
@@ -98,12 +98,12 @@ class MonacoImeWindowTest {
     @Test
     fun `negative offsets are rejected`() {
         assertNull(
-            MonacoImeWindow.parseWindow(
+            MonacoImeWindows.parseWindow(
                 """{"windowStartOffset":-1,"cursorInWindow":3,"text":"x"}"""
             ) 
         )
         assertNull(
-            MonacoImeWindow.parseWindow(
+            MonacoImeWindows.parseWindow(
                 """{"windowStartOffset":0,"cursorInWindow":-3,"text":"x"}"""
             )
         )
@@ -111,15 +111,15 @@ class MonacoImeWindowTest {
 
     @Test
     fun `payloads larger than the window bound are rejected`() {
-        val big = "x".repeat(MonacoImeWindow.MAX_WINDOW_CHARS + 1)
+        val big = "x".repeat(MonacoImeWindows.MAX_WINDOW_CHARS + 1)
         assertNull(
-            MonacoImeWindow.parseWindow(
+            MonacoImeWindows.parseWindow(
                 """{"windowStartOffset":0,"cursorInWindow":0,"text":"$big"}"""
             )
         )
-        val ok = "y".repeat(MonacoImeWindow.MAX_WINDOW_CHARS)
+        val ok = "y".repeat(MonacoImeWindows.MAX_WINDOW_CHARS)
         assertTrue(
-            MonacoImeWindow.parseWindow(
+            MonacoImeWindows.parseWindow(
                 """{"windowStartOffset":0,"cursorInWindow":0,"text":"$ok"}"""
             ) != null
         )
@@ -127,8 +127,8 @@ class MonacoImeWindowTest {
 
     @Test
     fun `malformed JSON is rejected`() {
-        assertNull(MonacoImeWindow.parseWindow("not json"))
-        assertNull(MonacoImeWindow.parseWindow(""))
-        assertNull(MonacoImeWindow.parseWindow("""[1,2]"""))
+        assertNull(MonacoImeWindows.parseWindow("not json"))
+        assertNull(MonacoImeWindows.parseWindow(""))
+        assertNull(MonacoImeWindows.parseWindow("""[1,2]"""))
     }
 }

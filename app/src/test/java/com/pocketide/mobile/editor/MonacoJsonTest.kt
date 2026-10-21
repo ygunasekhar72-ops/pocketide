@@ -21,7 +21,7 @@ class MonacoJsonTest {
     @Test
     fun `control characters and quotes are escaped`() {
         val encoded = MonacoJson.encodeString("a\"b\\c\nd\r\te\u000Cf让你")
-        assertEquals("\"a\\\"b\\\\c\\nd\\r\\te\\u000cf让你\"", encoded)
+        assertEquals("\"a\\\"b\\\\c\\nd\\r\\te\\f让你\"", encoded)
     }
 
     @Test

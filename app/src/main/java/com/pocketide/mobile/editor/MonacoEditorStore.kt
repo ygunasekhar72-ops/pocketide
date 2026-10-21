@@ -42,7 +42,7 @@ class MonacoEditorStore(private val root: File) {
         val charset = Charsets.UTF_8
         root.mkdirs()
         val file = fileFor(projectName)
-        val encodingBody = MonacoJson.Obj(
+        val encodingBody = MonacoJson.Json.Obj(
             mapOf(
                 "content" to MonacoJson.Json.Str(document.content),
                 "language" to MonacoJson.Json.Str(document.language)

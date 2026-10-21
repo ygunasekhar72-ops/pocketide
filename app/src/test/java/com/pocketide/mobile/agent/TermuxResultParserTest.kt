@@ -31,7 +31,7 @@ class TermuxResultParserTest {
 
     private fun raw(rootOnly: Map<String, Any?>) = MapView(rootOnly)
 
-    private fun successResult(vararg inner: Pair<String, Any?>): AgentCommandResult {
+    private fun successResult(vararg inner: Pair<String, Any?>): AgentCommandResult.Success {
         val result = TermuxResultParser.parse(payload(*inner))
         return result as AgentCommandResult.Success
     }

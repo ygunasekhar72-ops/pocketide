@@ -1,5 +1,6 @@
 package com.pocketide.mobile.agent
 
+import android.app.Application
 import android.app.PendingIntent
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -62,7 +63,7 @@ class AndroidTermuxAgentTransportTest {
         val transport = AndroidTermuxAgentTransport(appContext())
         val request = RunCommandRequest(
             executablePath = "\$PREFIX/bin/echo",
-            arguments = listOf("hello world\n", "c\nd", "$HOME ;;"),
+            arguments = listOf("hello world\n", "c\nd", "\$HOME ;;"),
             stdin = null,
             background = true,
             commandLabel = "pocketide:tpl-echo"
@@ -81,7 +82,7 @@ class AndroidTermuxAgentTransportTest {
         )
         assertTrue(arguments != null)
         assertEquals(
-            listOf("hello world\n", "c\nd", "$HOME ;;"),
+            listOf("hello world\n", "c\nd", "\$HOME ;;"),
             arguments?.toList()
         )
         assertEquals(
@@ -144,7 +145,8 @@ class AndroidTermuxAgentTransportTest {
         }
 
         // Inspect the ACTUAL broadcast handed to the system, not the builder.
-        val sent = shadowOf(context).getBroadcastIntents().last()
+        val sent = shadowOf(context.applicationContext as Application)
+            .getBroadcastIntents().last()
         assertEquals(TermuxPluginConstants.ACTION_RUN_COMMAND, sent.action)
         assertEquals(TermuxPluginConstants.TERMUX_PACKAGE_NAME, sent.`package`)
         val pending = IntentCompat.getParcelableExtra(
@@ -168,10 +170,6 @@ class AndroidTermuxAgentTransportTest {
                 TermuxPluginConstants.RESULT_BUNDLE_KEY_EXIT_CODE to 0,
                 TermuxPluginConstants.RESULT_BUNDLE_KEY_STDOUT to "ok"
             )
-        )
-        delivery.putExtra(
-            AndroidTermuxAgentTransport.RESULT_NONCE_EXTRA,
-            transport.lastNonce
         )
         transport.onResultIntent?.invoke(delivery)
         job.join()
@@ -220,7 +218,6 @@ class AndroidTermuxAgentTransportTest {
             TermuxPluginConstants.RESULT_BUNDLE_KEY_STDOUT to "hello"
         )
         deliveryIntent.putExtras(payload)
-        deliveryIntent.putExtra(AndroidTermuxAgentTransport.RESULT_NONCE_EXTRA, transport.lastNonce)
 
         // Simulated Termux result delivery routed through the glue's handler.
         transport.onResultIntent?.invoke(deliveryIntent)
@@ -252,23 +249,13 @@ class AndroidTermuxAgentTransportTest {
         // Delivery with a mismatched nonce: ignored silently.
         val alienIntent = transport.buildResultDeliveryIntent(correctNonce + 1)
         alienIntent.putExtras(resultPayload())
-        alienIntent.putExtra(
-            AndroidTermuxAgentTransport.RESULT_NONCE_EXTRA,
-            correctNonce + 1
-        )
         transport.onResultIntent?.invoke(alienIntent)
-
-        // The correct nonce still completes the pending dispatch afterwards.
         val matching = transport.buildResultDeliveryIntent(correctNonce)
         matching.putExtras(
             resultPayload(
                 TermuxPluginConstants.RESULT_BUNDLE_KEY_EXIT_CODE to 0,
                 TermuxPluginConstants.RESULT_BUNDLE_KEY_STDOUT to "late-ok"
             )
-        )
-        matching.putExtra(
-            AndroidTermuxAgentTransport.RESULT_NONCE_EXTRA,
-            correctNonce
         )
         transport.onResultIntent?.invoke(matching)
         job.join()

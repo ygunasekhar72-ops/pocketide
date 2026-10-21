@@ -8,7 +8,6 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
-import androidx.compose.ui.test.assertNotExist
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -98,7 +97,7 @@ class PocketAppShellTest {
         composeRule.onAllNodesWithText("Tab").assertCountEquals(1)
         composeRule
             .onNodeWithText("Monaco · M2 · files · M3")
-            .assertNotExist()
+            .assertDoesNotExist()
         composeRule
             .onNodeWithText("in-app store · real files M3")
             .assertIsDisplayed()

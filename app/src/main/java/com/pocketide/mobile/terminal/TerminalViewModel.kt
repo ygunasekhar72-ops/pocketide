@@ -132,7 +132,9 @@ class TerminalViewModel(
         }
     }
 
-    override fun onCleared() {
+    // Public on purpose: test harnesses drive the same cancellation path
+    // without reflection; the lifecycle owner still calls it normally.
+    public override fun onCleared() {
         super.onCleared()
         scope.cancel()
     }

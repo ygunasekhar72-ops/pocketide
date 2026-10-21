@@ -9,6 +9,7 @@ import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
+import java.io.File
 
 /**
  * Persistence contract of the M2 editor document store — names, corrupt
@@ -23,7 +24,7 @@ class MonacoEditorStoreTest {
 
     @Before
     fun setUp() {
-        store = MonacoEditorStore(temporaryFolder.resolve("editor-docs"))
+        store = MonacoEditorStore(File(temporaryFolder.root, "editor-docs"))
     }
 
     @Test
@@ -86,7 +87,7 @@ class MonacoEditorStoreTest {
     @Test
     fun `corrupt stored files surface honestly instead of faking content`() {
         store.save("victim", MonacoDocument("fine"))
-        val file = temporaryFolder.resolve("editor-docs").resolve("victim.json")
+        val file = File(temporaryFolder.root, "editor-docs/victim.json")
         file.writeText("{ not json ")
         try {
             store.load("victim")
@@ -99,7 +100,7 @@ class MonacoEditorStoreTest {
     @Test
     fun `persisted shape stays within the one-object contract`() {
         store.save("shape", MonacoDocument("doc", "json"))
-        val raw = temporaryFolder.resolve("editor-docs").resolve("shape.json").readText()
+        val raw = File(temporaryFolder.root, "editor-docs/shape.json").readText()
         val parsed = MonacoJson.parse(raw) as? MonacoJson.Json.Obj
         assertNotNull(parsed)
         assertEquals(

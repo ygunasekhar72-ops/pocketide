@@ -369,6 +369,8 @@ private suspend fun runPtyGroup(ptyProbe: PtyProbe?): DeviceCheckGroup {
 }
 
 /** Overall cap for a check body; exceeding it is surfaced as FAIL, never a hang. */
-private suspend fun bounded(millis: Long, body: suspend () -> Unit) {
-    if (withTimeoutOrNull(millis) { body() } == null) fail("check exceeded ${millis}ms overall")
+private suspend fun <T> bounded(millis: Long, body: suspend () -> T): T {
+    val outcome = withTimeoutOrNull(millis) { body() }
+        ?: fail("check exceeded ${millis}ms overall")
+    return outcome
 }

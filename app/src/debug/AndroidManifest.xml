@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Debug-only manifest additions: the P3e self-check activity mounts a
+     launcher entry so it can be started directly on-device. The release
+     variant never sees this overlay. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <application>
+        <activity
+            android:name="com.pocketide.mobile.devicecheck.ValidationActivity"
+            android:exported="true"
+            android:label="PocketIDE Dev Self-Check"
+            android:windowSoftInputMode="adjustResize">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>

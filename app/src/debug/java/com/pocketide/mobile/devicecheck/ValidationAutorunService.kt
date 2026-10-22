@@ -42,7 +42,7 @@ class ValidationAutorunService : Service() {
                     )
                     val json = report.serialize()
                     ReportPusher.push(applicationContext, json)
-                } catch (_) {
+                } catch (_: Throwable) {
                     // Push transport unavailable: nothing else can be done here.
                 }
             } finally {

@@ -103,6 +103,5 @@ data class DeviceValidationReport(
     }
 }
 
-/** JSON string escape reuse from the editor codec: one shared escape table. */
-private fun jsonStr(value: String): String =
-    "\"" + MonacoJson.encodeString(value) + "\""
+/** JSON string encoding via the editor codec (which adds its own quotes). */
+private fun jsonStr(value: String): String = MonacoJson.encodeString(value)

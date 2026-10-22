@@ -25,14 +25,25 @@ class ValidationAutorunService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        Diagnostics.installCrashRecorder(applicationContext)
+        Diagnostics.log(applicationContext, "service", "onStartCommand id=$startId")
         startAsForeground()
         serviceScope.launch {
             try {
-                if (HeadlessAutoRunner.isRunning()) return@launch
-                HeadlessAutoRunner.runNow(applicationContext, RunMode.HEADLESS_SERVICE)
+                if (HeadlessAutoRunner.isRunning()) {
+                    Diagnostics.log(applicationContext, "service", "run already in flight; ending")
+                    return@launch
+                }
+                val report = HeadlessAutoRunner.runNow(applicationContext, RunMode.HEADLESS_SERVICE)
+                Diagnostics.log(
+                    applicationContext, "service",
+                    "finished: ${report?.summaryLine() ?: "skipped (concurrent run)"}"
+                )
             } catch (t: Throwable) {
-                // A foreground service must not crash the process on a rejected run.
-                // Honest failure marker goes to the report file and the push transport.
+                Diagnostics.log(
+                    applicationContext, "service/fatal", "run failed: " +
+                        android.util.Log.getStackTraceString(t)
+                )
                 try {
                     val report = DeviceValidationReport(
                         deviceTestedAtIso = DeviceFacts.nowIso(),
@@ -42,10 +53,14 @@ class ValidationAutorunService : Service() {
                     )
                     val json = report.serialize()
                     ReportPusher.push(applicationContext, json)
-                } catch (_: Throwable) {
-                    // Push transport unavailable: nothing else can be done here.
+                } catch (pushFailure: Throwable) {
+                    Diagnostics.log(
+                        applicationContext, "service/push-error", "run.error push failed: " +
+                            android.util.Log.getStackTraceString(pushFailure)
+                    )
                 }
             } finally {
+                Diagnostics.log(applicationContext, "service", "stopping foreground id=$startId")
                 stopForeground(STOP_FOREGROUND_REMOVE)
                 stopSelfResult(startId)
             }

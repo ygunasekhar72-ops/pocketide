@@ -3,6 +3,7 @@ package com.pocketide.mobile.devicecheck
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.util.Log
 
 /**
  * Debug-only trigger receiver. Two supported paths:
@@ -15,12 +16,19 @@ import android.content.Intent
 class ValidationAutorunReceiver : BroadcastReceiver() {
 
     override fun onReceive(context: Context, intent: Intent) {
+        Diagnostics.installCrashRecorder(context)
         val action = intent.action
+        Diagnostics.log(context, "receiver", "onReceive action=$action ${Diagnostics.debugBuildInfo()}")
         if (action != ACTION_TRIGGER && action != Intent.ACTION_MY_PACKAGE_REPLACED) return
         val service = Intent(context, ValidationAutorunService::class.java)
         try {
             context.startForegroundService(service)
+            Diagnostics.log(context, "receiver", "service start dispatched")
         } catch (t: Throwable) {
+            Diagnostics.log(
+                context, "receiver/fatal", "service start refused: " +
+                    Log.getStackTraceString(t)
+            )
             // Blocked from background: an honest marker through the push transport.
             try {
                 ReportPusher.push(
@@ -31,8 +39,12 @@ class ValidationAutorunReceiver : BroadcastReceiver() {
                         groups = emptyList()
                     ).serialize()
                 )
-            } catch (_: Throwable) {
-                // Push transport unavailable; nothing more can be recorded here.
+                Diagnostics.log(context, "receiver", "run.error push dispatched")
+            } catch (pushFailure: Throwable) {
+                Diagnostics.log(
+                    context, "receiver/push-error", "run.error push failed: " +
+                        Log.getStackTraceString(pushFailure)
+                )
             }
         }
     }

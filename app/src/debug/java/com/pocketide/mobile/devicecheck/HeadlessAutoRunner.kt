@@ -41,6 +41,7 @@ object HeadlessAutoRunner {
     }
 
     private suspend fun execute(context: Context, mode: RunMode, live: LiveSnapshot?): DeviceValidationReport {
+        Diagnostics.log(context, "runner", "execute start mode=$mode ${Diagnostics.debugBuildInfo()}")
         val root = File(context.filesDir, "p3e-validation")
         root.mkdirs()
         val manual = mode == RunMode.MANUAL_BUTTON
@@ -49,14 +50,21 @@ object HeadlessAutoRunner {
             DeviceFacts.collect(context).toMutableMap()
         }
         facts["run.mode"] = mode.name
+        Diagnostics.log(context, "runner", "facts collected: ${facts.entries.joinToString(",") { "${it.key}=${it.value}" }}")
 
         val editorProbe: EditorProbe? = try {
+            Diagnostics.log(context, "runner", "creating Monaco probe engine…")
             val holder = MonacoProbeEngine()
             withContext(Dispatchers.Main) {
                 holder.createProbeWebView(context)
             }
+            Diagnostics.log(context, "runner", "Monaco probe engine created ok")
             MonacoAutoProbe(holder, root)
         } catch (t: Throwable) {
+            Diagnostics.log(
+                context, "runner/fatal", "Monaco probe creation failed: " +
+                    android.util.Log.getStackTraceString(t)
+            )
             null
         }
 
@@ -70,27 +78,67 @@ object HeadlessAutoRunner {
                 workspaceRootDir = root
             )
         } catch (t: Throwable) {
+            Diagnostics.log(
+                context, "runner/fatal", "PTY probe creation failed: " +
+                    android.util.Log.getStackTraceString(t)
+            )
             null
         }
 
-        val report = DeviceValidationReport(
-            deviceTestedAtIso = DeviceFacts.nowIso(),
-            facts = facts,
-            groups = runValidationMatrix(
-                editorProbe = editorProbe,
-                ptyProbe = ptyProbe,
-                snapshots = live ?: autoSnapshots(context),
+        val report: DeviceValidationReport
+        val collectedSoFar = mutableListOf<DeviceCheckGroup>()
+        try {
+            report = DeviceValidationReport(
+                deviceTestedAtIso = DeviceFacts.nowIso(),
                 facts = facts,
-                manualEvidence = manual,
-                storeProbe = editorProbe as? MonacoAutoProbe
+                groups = runValidationMatrix(
+                    editorProbe = editorProbe,
+                    ptyProbe = ptyProbe,
+                    snapshots = live ?: autoSnapshots(context),
+                    facts = facts,
+                    manualEvidence = manual,
+                    storeProbe = editorProbe as? MonacoAutoProbe,
+                    onGroup = { group ->
+                        collectedSoFar.add(group)
+                        Diagnostics.log(context, "runner", "group done: ${group.summaryMetrics()}")
+                        // Incremental persistence: even a mid-matrix crash leaves every
+                        // completed group on record.
+                        withContext(Dispatchers.IO) {
+                            val json = DeviceValidationReport(
+                                deviceTestedAtIso = DeviceFacts.nowIso(),
+                                facts = facts + mapOf("run.partial" to "true"),
+                                groups = collectedSoFar.toList()
+                            ).serialize()
+                            File(root, LAST_REPORT_FILE).writeText(json)
+                            json
+                        }
+                    }
+                )
             )
-        )
+        } catch (t: Throwable) {
+            Diagnostics.log(
+                context, "runner/fatal", "matrix aborted: " +
+                    android.util.Log.getStackTraceString(t)
+            )
+            throw t
+        }
         val json = report.serialize()
+        Diagnostics.log(context, "runner", "matrix complete: ${report.summaryLine()} (json ${json.length} bytes)")
         withContext(Dispatchers.IO) {
             File(root, LAST_REPORT_FILE).writeText(json)
         }
-        ReportPusher.push(context, json)
+        Diagnostics.log(context, "runner", "last-report persisted")
+        try {
+            ReportPusher.push(context, json)
+            Diagnostics.log(context, "runner", "report push dispatched (${json.length} bytes)")
+        } catch (t: Throwable) {
+            Diagnostics.log(
+                context, "runner/push-error", "report push failed: " +
+                    android.util.Log.getStackTraceString(t)
+            )
+        }
         (editorProbe as? MonacoAutoProbe)?.detachEngine()
+        Diagnostics.log(context, "runner", "execute end mode=$mode")
         return report
     }
 

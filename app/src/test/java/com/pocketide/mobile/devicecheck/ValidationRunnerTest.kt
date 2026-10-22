@@ -164,6 +164,29 @@ class ValidationRunnerTest {
     }
 
     @Test
+    fun `onGroup hook observes all groups in order`() = runTest {
+        val seen = mutableListOf<String>()
+        runValidationMatrix(
+            FakeEditorProbe(), FakePtyProbe(), FakeLiveSnapshot(), emptyMap(),
+            onGroup = { seen.add(it.id) }
+        )
+        assertEquals(listOf("ENV", "A", "B", "C", "D", "E", "F", "PTY"), seen)
+    }
+
+    @Test
+    fun `summaryMetrics counts statuses compactly`() {
+        val group = DeviceCheckGroup(
+            "A", "Airplane-mode: vendored engine offline",
+            listOf(
+                DeviceCheckResult("a1", "t1", DeviceCheckResult.STATUS_PASS, ""),
+                DeviceCheckResult("a2", "t2", DeviceCheckResult.STATUS_FAIL, ""),
+                DeviceCheckResult("a3", "t3", DeviceCheckResult.STATUS_SKIP, "")
+            )
+        )
+        assertEquals("A:P1,F1,S1,B0", group.summaryMetrics())
+    }
+
+    @Test
     fun `probe timeouts surface as FAIL with evidence`() = runTest {
         // A probe behind a blocked engine simulates timeouts by echoing null
         // like the real "callback never arrived" path.

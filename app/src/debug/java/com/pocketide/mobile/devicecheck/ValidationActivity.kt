@@ -72,6 +72,8 @@ class ValidationActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        Diagnostics.installCrashRecorder(applicationContext)
+        Diagnostics.log(applicationContext, "activity", "onCreate ${Diagnostics.debugBuildInfo()}")
         installImeWatcher()
         prepareHarnessWorkspace()
         setContent {
@@ -81,10 +83,23 @@ class ValidationActivity : ComponentActivity() {
         }
         harnessScope.launch {
             kotlinx.coroutines.delay(1_500)
-            val report = HeadlessAutoRunner.runNow(this@ValidationActivity, RunMode.ACTIVITY_AUTO)
-            if (report != null) {
-                reportJson.value = report.serialize()
-                runStatus.value = "auto-run done · ${report.summaryLine()}"
+            try {
+                Diagnostics.log(applicationContext, "activity/auto", "auto-run start")
+                val report = HeadlessAutoRunner.runNow(this@ValidationActivity, RunMode.ACTIVITY_AUTO)
+                Diagnostics.log(
+                    applicationContext, "activity/auto",
+                    report?.let { "auto-run done · ${it.summaryLine()}" } ?: "auto-run skipped (concurrent)"
+                )
+                if (report != null) {
+                    reportJson.value = report.serialize()
+                    runStatus.value = "auto-run done · ${report.summaryLine()}"
+                }
+            } catch (t: Throwable) {
+                Diagnostics.log(
+                    applicationContext, "activity/auto/fatal", "auto-run failed: " +
+                        android.util.Log.getStackTraceString(t)
+                )
+                runStatus.value = "auto-run failed: ${t.message}"
             }
         }
     }
@@ -131,17 +146,27 @@ class ValidationActivity : ComponentActivity() {
     private fun runAllChecks() {
         runStatus.value = "running…"
         harnessScope.launch {
-            val report = HeadlessAutoRunner.runNow(
-                this@ValidationActivity,
-                RunMode.MANUAL_BUTTON,
-                live = liveSnapshot()
-            )
-            if (report == null) {
-                runStatus.value = "a run is already in flight"
-                return@launch
+            try {
+                Diagnostics.log(applicationContext, "activity/manual", "manual run start")
+                val report = HeadlessAutoRunner.runNow(
+                    this@ValidationActivity,
+                    RunMode.MANUAL_BUTTON,
+                    live = liveSnapshot()
+                )
+                if (report == null) {
+                    runStatus.value = "a run is already in flight"
+                    return@launch
+                }
+                Diagnostics.log(applicationContext, "activity/manual", "manual run done · ${report.summaryLine()}")
+                reportJson.value = report.serialize()
+                runStatus.value = "done · ${report.summaryLine()}"
+            } catch (t: Throwable) {
+                Diagnostics.log(
+                    applicationContext, "activity/manual/fatal", "manual run failed: " +
+                        android.util.Log.getStackTraceString(t)
+                )
+                runStatus.value = "run failed: ${t.message}"
             }
-            reportJson.value = report.serialize()
-            runStatus.value = "done · ${report.summaryLine()}"
         }
     }
 
@@ -153,8 +178,13 @@ class ValidationActivity : ComponentActivity() {
         }
         try {
             ReportPusher.push(this, json)
+            Diagnostics.log(applicationContext, "activity/push", "manual push dispatched (${json.length} bytes)")
             pushStatus.value = "pushed ${json.length} bytes → ${ReportPusher.REPORT_PATH}"
         } catch (t: Throwable) {
+            Diagnostics.log(
+                applicationContext, "activity/push-error", "manual push failed: " +
+                    android.util.Log.getStackTraceString(t)
+            )
             pushStatus.value = "push failed: ${t.message}"
         }
     }

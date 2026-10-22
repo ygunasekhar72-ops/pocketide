@@ -93,17 +93,26 @@ suspend fun runValidationMatrix(
     snapshots: LiveSnapshot,
     facts: Map<String, String>,
     manualEvidence: Boolean = true,
-    storeProbe: StoreProbe? = null
-): List<DeviceCheckGroup> = listOf(
-    runFactsGroup(facts, snapshots),
-    runAirplaneGroup(editorProbe, snapshots),
-    runKeyboardGroup(snapshots, manualEvidence),
-    runCursorGroup(editorProbe),
-    runShortcutGroup(editorProbe),
-    runPersistenceGroup(editorProbe, storeProbe, snapshots),
-    runBridgeGroup(editorProbe),
-    runPtyGroup(ptyProbe)
-)
+    storeProbe: StoreProbe? = null,
+    onGroup: (suspend (DeviceCheckGroup) -> Unit)? = null
+): List<DeviceCheckGroup> {
+    val groups = mutableListOf<DeviceCheckGroup>()
+    runFactsGroup(facts, snapshots).also { groups += it; onGroup?.invoke(it) }
+    runAirplaneGroup(editorProbe, snapshots).also { groups += it; onGroup?.invoke(it) }
+    runKeyboardGroup(snapshots, manualEvidence).also { groups += it; onGroup?.invoke(it) }
+    runCursorGroup(editorProbe).also { groups += it; onGroup?.invoke(it) }
+    runShortcutGroup(editorProbe).also { groups += it; onGroup?.invoke(it) }
+    runPersistenceGroup(editorProbe, storeProbe, snapshots).also { groups += it; onGroup?.invoke(it) }
+    runBridgeGroup(editorProbe).also { groups += it; onGroup?.invoke(it) }
+    runPtyGroup(ptyProbe).also { groups += it; onGroup?.invoke(it) }
+    return groups
+}
+
+/** Compact one-line digest for milestone logs: "A:P2,F0,S0,B0 ...". */
+fun DeviceCheckGroup.summaryMetrics(): String =
+    "$id:" + DeviceCheckResult.STATUSES.joinToString(",") { status ->
+        "${status.first()}${results.count { it.status == status }}"
+    }
 
 private suspend fun safe(id: String, title: String, body: suspend () -> String): DeviceCheckResult = try {
     DeviceCheckResult(id, title, DeviceCheckResult.STATUS_PASS, body())

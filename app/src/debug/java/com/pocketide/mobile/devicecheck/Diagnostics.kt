@@ -76,7 +76,7 @@ object Diagnostics {
         synchronized(lock) {
             try {
                 val resolver = context.contentResolver
-                val uri = ensureItemUri(resolver, displayName)
+                val uri = ensureItemUri(context, displayName)
                 if (uri == null) {
                     android.util.Log.e(TAG, "no MediaStore row for $displayName")
                     return false

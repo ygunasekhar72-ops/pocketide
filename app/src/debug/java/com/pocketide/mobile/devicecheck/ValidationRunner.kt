@@ -107,7 +107,7 @@ suspend fun runValidationMatrix(
     runShortcutGroup(editorProbe).also { groups += it; onGroup?.invoke(it) }
     runPersistenceGroup(editorProbe, storeProbe, snapshots).also { groups += it; onGroup?.invoke(it) }
     runBridgeGroup(editorProbe).also { groups += it; onGroup?.invoke(it) }
-    runPtyGroup(ptyProbe).also { groups += it; onGroup?.invoke(it) }
+    runPtyGroup(ptyProbe, ptyCheckTrace).also { groups += it; onGroup?.invoke(it) }
     return groups
 }
 
@@ -314,7 +314,10 @@ private suspend fun runBridgeGroup(editorProbe: EditorProbe?): DeviceCheckGroup 
     return DeviceCheckGroup("F", "Bridge payload discipline (real transport)", results)
 }
 
-private suspend fun runPtyGroup(ptyProbe: PtyProbe?): DeviceCheckGroup {
+private suspend fun runPtyGroup(
+    ptyProbe: PtyProbe?,
+    ptyCheckTrace: ((String) -> Unit)? = null
+): DeviceCheckGroup {
     val results = mutableListOf<DeviceCheckResult>()
     if (ptyProbe == null) {
         results += DeviceCheckResult(

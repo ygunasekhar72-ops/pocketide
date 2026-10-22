@@ -35,8 +35,21 @@ class HardwarePtyProbe(
             terminalViewModel.uiState.first { it.live }
             true
         }
-        trace("start: live await result=${live == true}")
-        return if (live == true) null else "session did not reach live state"
+        val status = terminalViewModel.uiState.value
+        trace(
+            "start: live await result=${live == true} " +
+                "status='${status.statusLabel}' textChars=${status.text.length}"
+        )
+        // Give the session a short settle window and record whether ANY output
+        // ever arrives (a live-but-silent session is itself a real finding).
+        withTimeoutOrNull(6_000) {
+            terminalViewModel.uiState.first { it.text.isNotEmpty() }
+        }
+        val settle = terminalViewModel.uiState.value
+        trace(
+            "start: settle status='${settle.statusLabel}' textChars=${settle.text.length}"
+        )
+        return if (live == true) null else "session did not reach live state (status '${status.statusLabel}')"
     }
 
     override suspend fun isLive(): Boolean = terminalViewModel.uiState.value.live
@@ -66,15 +79,15 @@ class HardwarePtyProbe(
         return if (ok) "$rows $cols" else null
     }
 
-    override suspend fun exitCodeEcho(): Int? = withRawSession(workspaceRootDir) { conn ->
+    override suspend fun exitCodeEcho(): Int? = withRawSession(workspaceRootDir, "exit-status") { conn ->
         trace("exitCodeEcho: raw session opened")
-        withTimeoutOrNull(20_000) {
-            conn.write("exit 3\n".encodeToByteArray())
-            conn.requestExit()
-            val code = conn.awaitExit()
-            trace("exitCodeEcho: awaitExit=$code")
-            code
-        }
+        PtyGuard.run(8_000, trace) { conn.write("exit 3\n".encodeToByteArray()) }
+        trace("exitCodeEcho: stdin written")
+        PtyGuard.run(8_000, trace) { conn.requestExit() }
+        trace("exitCodeEcho: exit requested; awaiting reaper")
+        val code = PtyGuard.run(10_000, trace) { conn.awaitExit() }
+        trace("exitCodeEcho: awaitExit=$code")
+        code
     }
 
     override suspend fun cancel(): Boolean {
@@ -89,22 +102,20 @@ class HardwarePtyProbe(
     }
 
     override suspend fun openDestroyCycle(): Boolean = try {
-        withTimeoutOrNull(15_000) {
-            withRawSession(workspaceRootDir) { conn ->
-                trace("openDestroyCycle: opened, destroying…")
-                true
-            }
+        withTimeoutOrNull(30_000) {
+            withRawSession(workspaceRootDir, "reopen-cycle") { _ -> true }
         } == true
     } catch (_: PtyStartException) {
+        trace("openDestroyCycle: open or setup refused/wedged")
         false
     }
 
     override suspend fun badCwdStart(): String? = try {
         trace("badCwdStart begin")
-        withRawSession(File("/nonexistent-void-p3e")) { "unexpectedly started" }
+        withRawSession(File("/nonexistent-void-p3e"), "bad-cwd") { "unexpectedly started" }
         null
     } catch (t: PtyStartException) {
-        trace("badCwdStart: exception=${t::class.simpleName}")
+        trace("badCwdStart: exception=${t::class.simpleName}:${t.message}")
         "refused: ${t.message}"
     }
 
@@ -112,19 +123,27 @@ class HardwarePtyProbe(
         // Manual phase signals are recorded by the activity UI, not here.
     }
 
-    /** Runs [block] against a real native connection; always destroys + joins. */
-    private suspend fun <T> withRawSession(cwd: File, block: suspend (PtyConnection) -> T): T {
+    /** Runs [block] against a real native connection; watchdog-bounded open. */
+    private suspend fun <T> withRawSession(cwd: File, tag: String, block: suspend (PtyConnection) -> T): T {
         val sessionJob: Job = Job()
         var conn: PtyConnection? = null
         try {
-            conn = withContext(sessionJob + Dispatchers.IO) {
-                val handle: PtyHandle = PtyLinuxHandle()
-                handle.open(PtySpec(cwd = cwd, env = emptyMap()))
+            trace("withRawSession[$tag]: open begin")
+            conn = withContext(Dispatchers.IO) {
+                PtyGuard.run(10_000, { m -> trace("withRawSession[$tag]: $m") }) {
+                    val handle: PtyHandle = PtyLinuxHandle()
+                    handle.open(PtySpec(cwd = cwd, env = emptyMap()))
+                }
             }
+            trace("withRawSession[$tag]: open complete handle=${conn.output != null}")
             return block(conn)
         } finally {
             try {
-                conn?.destroy()
+                conn?.let { c ->
+                    PtyGuard.run(8_000, { m -> trace("withRawSession[$tag]: $m") }) {
+                        c.destroy()
+                    }
+                }
             } finally {
                 sessionJob.cancel()
             }

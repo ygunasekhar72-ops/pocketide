@@ -99,6 +99,7 @@ class ValidationReportTest {
         assertNotNull("serialized report must parse as JSON", parsed)
         val obj = parsed as MonacoJson.Json.Obj
         assertEquals(MonacoJson.Json.Str("p3e-validation-1"), obj.entries["schema"])
-        assertEquals(report.facts["device.model"], (obj.entries["facts"] as MonacoJson.Json.Obj).entries["device.model"])
+        val facts = obj.entries["facts"] as MonacoJson.Json.Obj
+        assertEquals(report.facts["device.model"], (facts.entries["device.model"] as MonacoJson.Json.Str).value)
     }
 }

@@ -80,7 +80,8 @@ object HeadlessAutoRunner {
                     { com.pocketide.mobile.terminal.PtyLinuxHandle() },
                     kotlinx.coroutines.CoroutineScope(SupervisorJob() + Dispatchers.IO)
                 ),
-                workspaceRootDir = root
+                workspaceRootDir = root,
+                trace = { message -> Diagnostics.log(context, "pty", message) }
             )
         } catch (t: Throwable) {
             Diagnostics.log(
@@ -115,9 +116,10 @@ object HeadlessAutoRunner {
                                 groups = collectedSoFar.toList()
                             ).serialize()
                             File(root, LAST_REPORT_FILE).writeText(json)
-                            json
+                            Diagnostics.publish(context, "p3e-report.json", json)
                         }
-                    }
+                    },
+                    ptyCheckTrace = { id -> Diagnostics.log(context, "pty/check", "begin $id") }
                 )
             )
         } catch (t: Throwable) {
@@ -131,8 +133,9 @@ object HeadlessAutoRunner {
         Diagnostics.log(context, "runner", "matrix complete: ${report.summaryLine()} (json ${json.length} bytes)")
         withContext(Dispatchers.IO) {
             File(root, LAST_REPORT_FILE).writeText(json)
+            Diagnostics.publish(context, "p3e-report.json", json)
         }
-        Diagnostics.log(context, "runner", "last-report persisted")
+        Diagnostics.log(context, "runner", "last-report persisted + published to Download/p3e-report.json")
         try {
             ReportPusher.push(context, json)
             Diagnostics.log(context, "runner", "report push dispatched (${json.length} bytes)")

@@ -66,6 +66,54 @@ object Diagnostics {
         }
     }
 
+    /**
+     * Publishes a run artifact (report JSON) into shared Download through the
+     * app's own MediaStore row, independent of the Termux RUN_COMMAND
+     * transport (which requires a permission Termux denies to third-party
+     * callers on this build). Returns false when publication was impossible.
+     */
+    fun publish(context: Context, displayName: String, content: String): Boolean {
+        synchronized(lock) {
+            try {
+                val resolver = context.contentResolver
+                val uri = ensureItemUri(resolver, displayName)
+                if (uri == null) {
+                    android.util.Log.e(TAG, "no MediaStore row for $displayName")
+                    return false
+                }
+                resolver.openOutputStream(uri, "w")?.use { out ->
+                    out.write(content.toByteArray(Charsets.UTF_8))
+                } ?: return false
+                android.util.Log.i(TAG, "published $displayName (${content.length} bytes)")
+                return true
+            } catch (t: Throwable) {
+                android.util.Log.e(
+                    TAG, "publish $displayName failed: ${t::class.simpleName}: ${t.message}"
+                )
+                return false
+            }
+        }
+    }
+
+    private fun ensureItemUri(context: Context, displayName: String): Uri? {
+        val resolver = context.contentResolver
+        val selection =
+            "${MediaStore.MediaColumns.DISPLAY_NAME} = ? AND ${MediaStore.MediaColumns.RELATIVE_PATH} = ?"
+        val args = arrayOf(displayName, "Download/")
+        resolver.query(MediaStore.Downloads.EXTERNAL_CONTENT_URI, PROJECTION, selection, args, null)
+            ?.use { cursor ->
+                if (cursor.moveToFirst()) {
+                    val id = cursor.getLong(cursor.getColumnIndexOrThrow(MediaStore.MediaColumns._ID))
+                    return ContentUris.withAppendedId(MediaStore.Downloads.EXTERNAL_CONTENT_URI, id)
+                }
+            }
+        val values = ContentValues().apply {
+            put(MediaStore.MediaColumns.DISPLAY_NAME, displayName)
+            put(MediaStore.MediaColumns.RELATIVE_PATH, "Download")
+        }
+        return resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
+    }
+
     private fun ensureRowUri(context: Context): Uri? {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
             // MediaStore.Downloads does not exist pre-29; scoped Download
@@ -73,26 +121,11 @@ object Diagnostics {
             android.util.Log.e(TAG, "MediaStore Downloads unavailable on SDK ${Build.VERSION.SDK_INT}")
             return null
         }
-        val resolver = context.contentResolver
-        val selection =
-            "${MediaStore.MediaColumns.DISPLAY_NAME} = ? AND ${MediaStore.MediaColumns.RELATIVE_PATH} = ?"
-        val args = arrayOf(LOG_NAME, "Download/")
-        try {
-                resolver.query(MediaStore.Downloads.EXTERNAL_CONTENT_URI, PROJECTION, selection, args, null)
-                    ?.use { cursor ->
-                        if (cursor.moveToFirst()) {
-                            val id = cursor.getLong(cursor.getColumnIndexOrThrow(MediaStore.MediaColumns._ID))
-                            return@ensureRowUri ContentUris.withAppendedId(MediaStore.Downloads.EXTERNAL_CONTENT_URI, id)
-                        }
-                    }
-            val values = ContentValues().apply {
-                put(MediaStore.MediaColumns.DISPLAY_NAME, LOG_NAME)
-                put(MediaStore.MediaColumns.RELATIVE_PATH, "Download")
-            }
-            return resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
+        return try {
+            ensureItemUri(context, LOG_NAME)
         } catch (t: Throwable) {
             android.util.Log.e(TAG, "MediaStore row provisioning failed: ${t::class.simpleName}: ${t.message}")
-            return null
+            null
         }
     }
 

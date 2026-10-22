@@ -96,7 +96,8 @@ suspend fun runValidationMatrix(
     facts: Map<String, String>,
     manualEvidence: Boolean = true,
     storeProbe: StoreProbe? = null,
-    onGroup: (suspend (DeviceCheckGroup) -> Unit)? = null
+    onGroup: (suspend (DeviceCheckGroup) -> Unit)? = null,
+    ptyCheckTrace: ((String) -> Unit)? = null
 ): List<DeviceCheckGroup> {
     val groups = mutableListOf<DeviceCheckGroup>()
     runFactsGroup(facts, snapshots).also { groups += it; onGroup?.invoke(it) }
@@ -325,18 +326,21 @@ private suspend fun runPtyGroup(ptyProbe: PtyProbe?): DeviceCheckGroup {
         return DeviceCheckGroup("PTY", "Native PTY behavior matrix", results)
     }
     results += safe("PTY.start", "Real /system/bin/sh session starts through the JNI PTY") {
+        ptyCheckTrace?.invoke("PTY.start")
         bounded(30_000) {
             ptyProbe.start()
             if (ptyProbe.isLive()) pass("session live") else fail("session not live after start")
         }
     }
     results += safe("PTY.echo-roundtrip", "stdin→stdout echo through the native master/slave pair") {
+        ptyCheckTrace?.invoke("PTY.echo-roundtrip")
         bounded(20_000) {
             val nonce = "pty-${System.nanoTime()}"
             if (ptyProbe.sendAndAwait("echo $nonce", nonce)) pass("echo contained $nonce") else fail("echo never appeared")
         }
     }
     results += safe("PTY.resize", "resize() reaches the kernel and stty agrees (SIGWINCH path)") {
+        ptyCheckTrace?.invoke("PTY.resize")
         bounded(25_000) {
             val rows = 24
             val cols = 96
@@ -346,12 +350,14 @@ private suspend fun runPtyGroup(ptyProbe: PtyProbe?): DeviceCheckGroup {
         }
     }
     results += safe("PTY.exit-status", "shell exit status propagates through the reaper") {
+        ptyCheckTrace?.invoke("PTY.exit-status")
         bounded(30_000) {
             val code = ptyProbe.exitCodeEcho()
             if (code == 3) pass("exit code 3 observed via real handle chain") else fail("unexpected exit status: $code")
         }
     }
     results += safe("PTY.reopen-cycle", "10 sequential open/close cycles complete cleanly") {
+        ptyCheckTrace?.invoke("PTY.reopen-cycle")
         bounded(120_000) {
             repeat(10) { index ->
                 if (!ptyProbe.openDestroyCycle()) fail("cycle ${index + 1} failed")
@@ -360,6 +366,7 @@ private suspend fun runPtyGroup(ptyProbe: PtyProbe?): DeviceCheckGroup {
         }
     }
     results += safe("PTY.bad-cwd", "invalid cwd surfaces as PtyStartException-style failure, not a crash") {
+        ptyCheckTrace?.invoke("PTY.bad-cwd")
         bounded(20_000) {
             val err = ptyProbe.badCwdStart()
             if (err != null) pass("start refused: $err") else fail("bad cwd unexpectedly started")

@@ -23,15 +23,19 @@ import java.io.File
  */
 class HardwarePtyProbe(
     private val terminalViewModel: TerminalViewModel,
-    private val workspaceRootDir: File
+    private val workspaceRootDir: File,
+    private val trace: (String) -> Unit = {}
 ) : PtyProbe {
 
     override suspend fun start(): String? {
+        trace("start: request begin")
         terminalViewModel.start(PROJECT_NAME)
+        trace("start: vm.start returned; awaiting live state")
         val live = withTimeoutOrNull(20_000) {
             terminalViewModel.uiState.first { it.live }
             true
         }
+        trace("start: live await result=${live == true}")
         return if (live == true) null else "session did not reach live state"
     }
 
@@ -42,11 +46,14 @@ class HardwarePtyProbe(
         awaitContains: String,
         timeoutMs: Long
     ): Boolean {
+        trace("sendAndAwait begin: $awaitContains")
         terminalViewModel.sendCommand(command)
-        return withTimeoutOrNull(timeoutMs) {
+        val result = withTimeoutOrNull(timeoutMs) {
             terminalViewModel.uiState.first { it.text.contains(awaitContains) }
             true
         } == true
+        trace("sendAndAwait end: $awaitContains ok=$result")
+        return result
     }
 
     override suspend fun resizeAndConfirm(rows: Int, cols: Int): String? {
@@ -60,33 +67,44 @@ class HardwarePtyProbe(
     }
 
     override suspend fun exitCodeEcho(): Int? = withRawSession(workspaceRootDir) { conn ->
+        trace("exitCodeEcho: raw session opened")
         withTimeoutOrNull(20_000) {
             conn.write("exit 3\n".encodeToByteArray())
             conn.requestExit()
-            conn.awaitExit()
+            val code = conn.awaitExit()
+            trace("exitCodeEcho: awaitExit=$code")
+            code
         }
     }
 
     override suspend fun cancel(): Boolean {
+        trace("cancel begin")
         terminalViewModel.stop()
-        return withTimeoutOrNull(10_000) {
+        val ok = withTimeoutOrNull(10_000) {
             terminalViewModel.uiState.first { !it.live }
             true
         } == true
+        trace("cancel end ok=$ok")
+        return ok
     }
 
     override suspend fun openDestroyCycle(): Boolean = try {
         withTimeoutOrNull(15_000) {
-            withRawSession(workspaceRootDir) { true }
+            withRawSession(workspaceRootDir) { conn ->
+                trace("openDestroyCycle: opened, destroying…")
+                true
+            }
         } == true
     } catch (_: PtyStartException) {
         false
     }
 
     override suspend fun badCwdStart(): String? = try {
+        trace("badCwdStart begin")
         withRawSession(File("/nonexistent-void-p3e")) { "unexpectedly started" }
         null
     } catch (t: PtyStartException) {
+        trace("badCwdStart: exception=${t::class.simpleName}")
         "refused: ${t.message}"
     }
 

@@ -183,7 +183,7 @@ class ValidationRunnerTest {
                 DeviceCheckResult("a3", "t3", DeviceCheckResult.STATUS_SKIP, "")
             )
         )
-        assertEquals("A:P1,F1,S1,B0", group.summaryMetrics())
+        assertEquals("A:P1,F1,B0,S1", group.summaryMetrics())
     }
 
     @Test

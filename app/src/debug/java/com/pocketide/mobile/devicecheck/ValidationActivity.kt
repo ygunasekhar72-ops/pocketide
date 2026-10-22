@@ -41,7 +41,6 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 import java.io.File
 
 /**
@@ -78,6 +77,14 @@ class ValidationActivity : ComponentActivity() {
         setContent {
             Surface(color = MaterialTheme.colorScheme.background) {
                 HarnessScreen()
+            }
+        }
+        harnessScope.launch {
+            kotlinx.coroutines.delay(1_500)
+            val report = HeadlessAutoRunner.runNow(this@ValidationActivity, RunMode.ACTIVITY_AUTO)
+            if (report != null) {
+                reportJson.value = report.serialize()
+                runStatus.value = "auto-run done · ${report.summaryLine()}"
             }
         }
     }
@@ -124,29 +131,17 @@ class ValidationActivity : ComponentActivity() {
     private fun runAllChecks() {
         runStatus.value = "running…"
         harnessScope.launch {
-            try {
-                val facts = withContext(Dispatchers.IO) {
-                    DeviceFacts.collect(this@ValidationActivity)
-                }
-                val report = DeviceValidationReport(
-                    deviceTestedAtIso = DeviceFacts.nowIso(),
-                    facts = facts,
-                    groups = runValidationMatrix(
-                        editorProbe = MonacoEditorProbe(probeEngineHolder),
-                        ptyProbe = HardwarePtyProbe(
-                            terminalViewModel = liveTerminalViewModel,
-                            workspaceRootDir = harnessRoot
-                        ),
-                        snapshots = liveSnapshot(),
-                        facts = facts
-                    )
-                )
-                val json = withContext(Dispatchers.IO) { report.serialize() }
-                reportJson.value = json
-                runStatus.value = "done · ${report.summaryLine()}"
-            } catch (t: Throwable) {
-                runStatus.value = "run error: ${t::class.simpleName}: ${t.message}"
+            val report = HeadlessAutoRunner.runNow(
+                this@ValidationActivity,
+                RunMode.MANUAL_BUTTON,
+                live = liveSnapshot()
+            )
+            if (report == null) {
+                runStatus.value = "a run is already in flight"
+                return@launch
             }
+            reportJson.value = report.serialize()
+            runStatus.value = "done · ${report.summaryLine()}"
         }
     }
 

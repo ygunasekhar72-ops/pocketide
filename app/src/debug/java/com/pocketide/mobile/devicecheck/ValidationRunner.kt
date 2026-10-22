@@ -22,6 +22,16 @@ interface EditorProbe {
 }
 
 /**
+ * Real-file store probe (MonacoEditorStore on-device). Lives behind its own
+ * interface because it is headless-capable: no WebView or visible screen
+ * needed, just the production serializer and real files.
+ */
+interface StoreProbe {
+    /** save then load with real files; returns the loaded content, null on failure. */
+    suspend fun storeRoundTrip(content: String): String?
+}
+
+/**
  * Snapshot provider for the LIVE harness screens (the visible EditorScreen /
  * TerminalScreen the user interacts with). The runner polls these to record
  * user-assisted evidence instead of fabricating it.
@@ -81,14 +91,16 @@ suspend fun runValidationMatrix(
     editorProbe: EditorProbe?,
     ptyProbe: PtyProbe?,
     snapshots: LiveSnapshot,
-    facts: Map<String, String>
+    facts: Map<String, String>,
+    manualEvidence: Boolean = true,
+    storeProbe: StoreProbe? = null
 ): List<DeviceCheckGroup> = listOf(
     runFactsGroup(facts, snapshots),
     runAirplaneGroup(editorProbe, snapshots),
-    runKeyboardGroup(editorProbe, snapshots),
+    runKeyboardGroup(snapshots, manualEvidence),
     runCursorGroup(editorProbe),
     runShortcutGroup(editorProbe),
-    runPersistenceGroup(editorProbe, snapshots),
+    runPersistenceGroup(editorProbe, storeProbe, snapshots),
     runBridgeGroup(editorProbe),
     runPtyGroup(ptyProbe)
 )
@@ -152,7 +164,27 @@ private suspend fun runAirplaneGroup(editorProbe: EditorProbe?, snapshots: LiveS
     return DeviceCheckGroup("A", "Airplane-mode: vendored engine offline", results)
 }
 
-private suspend fun runKeyboardGroup(editorProbe: EditorProbe?, snapshots: LiveSnapshot): DeviceCheckGroup {
+private suspend fun runKeyboardGroup(snapshots: LiveSnapshot, manual: Boolean): DeviceCheckGroup {
+    if (!manual) {
+        return DeviceCheckGroup(
+            "B",
+            "Keyboard: tap-to-open IME driver bridge",
+            listOf(
+                DeviceCheckResult(
+                    "B.ime-shown",
+                    "Keyboard opened on tap of the editor canvas",
+                    DeviceCheckResult.STATUS_SKIP,
+                    "headless run: IME/touch evidence needs the interactive harness (Run all button)"
+                ),
+                DeviceCheckResult(
+                    "B.input-reaches-model",
+                    "Typed key arrives in the Monaco model and is confirmed via save round trip",
+                    DeviceCheckResult.STATUS_SKIP,
+                    "headless run: typed keystroke evidence needs the interactive harness"
+                )
+            )
+        )
+    }
     val imeSeen = snapshots.consumeImeSeen()
     val doc = snapshots.visibleEditorDocument()
     val dirty = snapshots.visibleEditorDirty()
@@ -216,8 +248,21 @@ private suspend fun runShortcutGroup(editorProbe: EditorProbe?): DeviceCheckGrou
     return DeviceCheckGroup("D", "Symbol shortcuts through the real accessory path", results)
 }
 
-private suspend fun runPersistenceGroup(editorProbe: EditorProbe?, snapshots: LiveSnapshot): DeviceCheckGroup {
+private suspend fun runPersistenceGroup(
+    editorProbe: EditorProbe?,
+    storeProbe: StoreProbe?,
+    snapshots: LiveSnapshot
+): DeviceCheckGroup {
     val results = listOf(
+        safe("E.store-file-roundtrip", "MonacoEditorStore.save/load with real files on-device byte-exact") {
+            if (storeProbe == null) {
+                skip("no store probe in this run mode")
+            }
+            val content = "store canary ${System.nanoTime()}"
+            val loaded = storeProbe.storeRoundTrip(content) ?: fail("store round trip failed")
+            if (loaded == content) pass("store file round trip exact")
+            else fail("store content mismatch: '$loaded'")
+        },
         safe("E.store-save-load", "Model canary round trip through the real engine; visible state snapshot recorded") {
             val probe = editorProbe ?: blocked("no editor engine available")
             val content = "persistence canary ${System.nanoTime()}"

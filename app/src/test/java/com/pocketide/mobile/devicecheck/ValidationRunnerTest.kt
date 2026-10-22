@@ -98,11 +98,22 @@ class ValidationRunnerTest {
         override fun notePauseResume(visibleGone: Boolean) = Unit
     }
 
+    private class FakeStoreProbe : StoreProbe {
+        override suspend fun storeRoundTrip(content: String): String? = "loaded: $content"
+    }
+
+    private class FakeStoreProbeExact : StoreProbe {
+        override suspend fun storeRoundTrip(content: String): String? = content
+    }
+
     @Test
     fun `all-green probes yield PASS groups`() = runTest {
         val editor = FakeEditorProbe()
         val pty = FakePtyProbe()
-        val groups = runValidationMatrix(editor, pty, FakeLiveSnapshot(), emptyMap())
+        val groups = runValidationMatrix(
+            editor, pty, FakeLiveSnapshot(), emptyMap(),
+            manualEvidence = true, storeProbe = FakeStoreProbeExact()
+        )
 
         val envGroup = groups.first { it.id == "ENV" }
         assertEquals(5, envGroup.results.size)
@@ -210,6 +221,44 @@ class ValidationRunnerTest {
         val groups = runValidationMatrix(FakeEditorProbe(), FakePtyProbe(), snapshot, emptyMap())
         val keyboard = groups.first { it.id == "B" }
         assertEquals(DeviceCheckResult.STATUS_FAIL, keyboard.results[0].status)
+    }
+
+    @Test
+    fun `headless auto mode records B group as SKIP with a reason`() = runTest {
+        val groups = runValidationMatrix(
+            FakeEditorProbe(),
+            FakePtyProbe(),
+            FakeLiveSnapshot(),
+            emptyMap(),
+            manualEvidence = false,
+            storeProbe = FakeStoreProbeExact()
+        )
+        val keyboard = groups.first { it.id == "B" }
+        assertEquals(2, keyboard.results.size)
+        keyboard.results.forEach { result ->
+            assertEquals(DeviceCheckResult.STATUS_SKIP, result.status)
+            assertTrue(result.evidence.contains("headless"))
+        }
+    }
+
+    @Test
+    fun `missing store probe is recorded as SKIP`() = runTest {
+        val groups = runValidationMatrix(FakeEditorProbe(), FakePtyProbe(), FakeLiveSnapshot(), emptyMap())
+        val storeCheck = groups.first { it.id == "E" }.results.first { it.id == "E.store-file-roundtrip" }
+        assertEquals(DeviceCheckResult.STATUS_SKIP, storeCheck.status)
+    }
+
+    @Test
+    fun `failing store probe surfaces as FAIL with evidence`() = runTest {
+        val failing = object : StoreProbe {
+            override suspend fun storeRoundTrip(content: String): String? = null
+        }
+        val groups = runValidationMatrix(
+            FakeEditorProbe(), FakePtyProbe(), FakeLiveSnapshot(), emptyMap(),
+            manualEvidence = true, storeProbe = failing
+        )
+        val storeCheck = groups.first { it.id == "E" }.results.first { it.id == "E.store-file-roundtrip" }
+        assertEquals(DeviceCheckResult.STATUS_FAIL, storeCheck.status)
     }
 
     @Test

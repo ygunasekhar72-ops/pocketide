@@ -1,8 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- Debug-only manifest additions: the P3e self-check activity mounts a
-     launcher entry so it can be started directly on-device. The release
-     variant never sees this overlay. -->
+     launcher entry so it can be started directly on-device; the auto-run
+     receiver/service let Termux drive the validation loop headlessly. The
+     release variant never sees this overlay. -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <application>
         <activity
@@ -15,5 +20,19 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <receiver
+            android:name="com.pocketide.mobile.devicecheck.ValidationAutorunReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="com.pocketide.mobile.devicecheck.RUN" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+            </intent-filter>
+        </receiver>
+
+        <service
+            android:name="com.pocketide.mobile.devicecheck.ValidationAutorunService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
     </application>
 </manifest>

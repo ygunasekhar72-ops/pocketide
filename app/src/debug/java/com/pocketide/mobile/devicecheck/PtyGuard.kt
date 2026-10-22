@@ -5,6 +5,7 @@ import java.util.concurrent.Executors
 import java.util.concurrent.TimeoutException
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.runBlocking
+import com.pocketide.mobile.terminal.PtyStartException
 
 /**
  * Watchdog for native PTY calls on-device. JNI calls that deadlock (observed:

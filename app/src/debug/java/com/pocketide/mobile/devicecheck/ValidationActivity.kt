@@ -88,7 +88,7 @@ class ValidationActivity : ComponentActivity() {
         ViewCompat.setOnApplyWindowInsetsListener(decor) { view: View, insets: WindowInsetsCompat ->
             val ime = insets.getInsets(WindowInsetsCompat.Type.ime())
             if (ime.bottom > 0) imeSeen.value = true
-            view
+            insets
         }
         imeWatcherInstalled = true
     }

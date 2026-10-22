@@ -242,6 +242,15 @@ class MonacoHostEngine(
         lastPushedContent = document.content
         lastPushedLanguage = document.language
         eval(MonacoProtocol.scriptSetContent(document.content, document.language))
+        // The page does NOT report content on model changes (those only
+        // trigger IME-window updates); content callbacks exist solely
+        // through explicit pulls, so a push schedules one behind its
+        // setContent. Empty documents skip the pull: reportContent rejects
+        // empty payloads and the owner treats empty opens as a valid state,
+        // so the old silent-open behavior is preserved.
+        if (document.content.isNotEmpty()) {
+            eval(MonacoProtocol.scriptPullContent())
+        }
     }
 
     private fun eval(script: String) {

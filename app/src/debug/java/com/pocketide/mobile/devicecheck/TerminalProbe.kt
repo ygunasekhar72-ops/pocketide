@@ -60,9 +60,11 @@ class HardwarePtyProbe(
     }
 
     override suspend fun exitCodeEcho(): Int? = withRawSession(workspaceRootDir) { conn ->
-        conn.write("exit 3\n".encodeToByteArray())
-        conn.requestExit()
-        conn.awaitExit()
+        withTimeoutOrNull(20_000) {
+            conn.write("exit 3\n".encodeToByteArray())
+            conn.requestExit()
+            conn.awaitExit()
+        }
     }
 
     override suspend fun cancel(): Boolean {
@@ -74,8 +76,9 @@ class HardwarePtyProbe(
     }
 
     override suspend fun openDestroyCycle(): Boolean = try {
-        withRawSession(workspaceRootDir) { true }
-        true
+        withTimeoutOrNull(15_000) {
+            withRawSession(workspaceRootDir) { true }
+        } == true
     } catch (_: PtyStartException) {
         false
     }

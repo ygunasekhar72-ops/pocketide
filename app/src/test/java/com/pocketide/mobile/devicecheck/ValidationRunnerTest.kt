@@ -164,6 +164,25 @@ class ValidationRunnerTest {
     }
 
     @Test
+    fun `headless without engine blocks engine checks but keeps real store evidence`() = runTest {
+        val groups = runValidationMatrix(
+            null, FakePtyProbe(), FakeLiveSnapshot(), emptyMap(),
+            manualEvidence = false, storeProbe = FakeStoreProbeExact()
+        )
+        val airplane = groups.first { it.id == "A" }
+        assertEquals(DeviceCheckResult.STATUS_BLOCKED, airplane.results.first().status)
+        val keyboard = groups.first { it.id == "B" }
+        assertEquals(DeviceCheckResult.STATUS_SKIP, keyboard.results.first().status)
+        val storeCheck = groups.first { it.id == "E" }.results.first { it.id == "E.store-file-roundtrip" }
+        assertEquals(DeviceCheckResult.STATUS_PASS, storeCheck.status)
+        val bridge = groups.first { it.id == "F" }
+        assertEquals(DeviceCheckResult.STATUS_BLOCKED, bridge.results.first().status)
+        assertTrue(
+            groups.first { it.id == "PTY" }.results.all { it.status == DeviceCheckResult.STATUS_PASS }
+        )
+    }
+
+    @Test
     fun `onGroup hook observes all groups in order`() = runTest {
         val seen = mutableListOf<String>()
         runValidationMatrix(

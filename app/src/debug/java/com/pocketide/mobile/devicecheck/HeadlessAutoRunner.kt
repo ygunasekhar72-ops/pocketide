@@ -30,17 +30,23 @@ object HeadlessAutoRunner {
     suspend fun runNow(
         context: Context,
         mode: RunMode,
-        live: LiveSnapshot? = null
+        live: LiveSnapshot? = null,
+        attachedEngine: MonacoProbeEngine? = null
     ): DeviceValidationReport? {
         if (!inFlight.compareAndSet(false, true)) return null
         try {
-            return execute(context, mode, live)
+            return execute(context, mode, live, attachedEngine)
         } finally {
             inFlight.set(false)
         }
     }
 
-    private suspend fun execute(context: Context, mode: RunMode, live: LiveSnapshot?): DeviceValidationReport {
+    private suspend fun execute(
+        context: Context,
+        mode: RunMode,
+        live: LiveSnapshot?,
+        sharedEngine: MonacoProbeEngine?
+    ): DeviceValidationReport {
         Diagnostics.log(context, "runner", "execute start mode=$mode ${Diagnostics.debugBuildInfo()}")
         val root = File(context.filesDir, "p3e-validation")
         root.mkdirs()
@@ -52,21 +58,20 @@ object HeadlessAutoRunner {
         facts["run.mode"] = mode.name
         Diagnostics.log(context, "runner", "facts collected: ${facts.entries.joinToString(",") { "${it.key}=${it.value}" }}")
 
-        val editorProbe: EditorProbe? = try {
-            Diagnostics.log(context, "runner", "creating Monaco probe engine…")
-            val holder = MonacoProbeEngine()
-            withContext(Dispatchers.Main) {
-                holder.createProbeWebView(context)
-            }
-            Diagnostics.log(context, "runner", "Monaco probe engine created ok")
-            MonacoAutoProbe(holder, root)
-        } catch (t: Throwable) {
-            Diagnostics.log(
-                context, "runner/fatal", "Monaco probe creation failed: " +
-                    android.util.Log.getStackTraceString(t)
-            )
+        // The Monaco bridge only handshake inside a WebView that is ATTACHED
+        // to a view hierarchy; a service-created detached WebView never
+        // fires its page scripts, so every engine-based check would burn
+        // its await timeout in the headless mode. Auto runs therefore reuse
+        // the attached engine from the harness screens when one is mounted;
+        // the service path runs engine-free with honest BLOCKED records.
+        val editorProbe: EditorProbe? = if (sharedEngine != null) {
+            Diagnostics.log(context, "runner", "using attached Monaco engine (mode=$mode)")
+            MonacoAutoProbe(sharedEngine, root)
+        } else {
+            Diagnostics.log(context, "runner", "no attached engine in mode=$mode; editor checks will be BLOCKED")
             null
         }
+        val storeProbe: StoreProbe? = editorProbe as? MonacoAutoProbe ?: FilesStoreProbe(root)
 
         val ptyProbe: PtyProbe? = try {
             HardwarePtyProbe(
@@ -97,7 +102,7 @@ object HeadlessAutoRunner {
                     snapshots = live ?: autoSnapshots(context),
                     facts = facts,
                     manualEvidence = manual,
-                    storeProbe = editorProbe as? MonacoAutoProbe,
+                    storeProbe = storeProbe,
                     onGroup = { group ->
                         collectedSoFar.add(group)
                         Diagnostics.log(context, "runner", "group done: ${group.summaryMetrics()}")
@@ -137,9 +142,25 @@ object HeadlessAutoRunner {
                     android.util.Log.getStackTraceString(t)
             )
         }
-        (editorProbe as? MonacoAutoProbe)?.detachEngine()
+        // Shared engines belong to their owner (activity screens / tester);
+        // never detach one owned elsewhere.
         Diagnostics.log(context, "runner", "execute end mode=$mode")
         return report
+    }
+
+    /** Real-file store probe used when no Monaco engine is available. */
+    private class FilesStoreProbe(private val storeRoot: File) : StoreProbe {
+        override suspend fun storeRoundTrip(content: String): String? = withContext(Dispatchers.IO) {
+            val store = com.pocketide.mobile.editor.MonacoEditorStore(storeRoot)
+            store.save(
+                HardwarePtyProbe.PROJECT_NAME,
+                com.pocketide.mobile.editor.MonacoDocument(
+                    content,
+                    com.pocketide.mobile.editor.MonacoDocument.DEFAULT_LANGUAGE
+                )
+            )
+            store.load(HardwarePtyProbe.PROJECT_NAME)?.content
+        }
     }
 
     /** Auto snapshots: no live editor screen exists, so UI-dependent values are empty. */
@@ -173,9 +194,5 @@ class MonacoAutoProbe(
         )
         val loaded = store.load(HardwarePtyProbe.PROJECT_NAME) ?: return null
         return loaded.content
-    }
-
-    fun detachEngine() {
-        holder.engine.detach()
     }
 }

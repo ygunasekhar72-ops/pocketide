@@ -1,5 +1,7 @@
 package com.pocketide.mobile.devicecheck
 
+import kotlinx.coroutines.withTimeoutOrNull
+
 /**
  * P3e validation runner: orchestrates the scenario matrix against the REAL
  * production code paths on-device (real MonacoHostEngine WebView, real
@@ -323,33 +325,50 @@ private suspend fun runPtyGroup(ptyProbe: PtyProbe?): DeviceCheckGroup {
         return DeviceCheckGroup("PTY", "Native PTY behavior matrix", results)
     }
     results += safe("PTY.start", "Real /system/bin/sh session starts through the JNI PTY") {
-        ptyProbe.start()
-        if (ptyProbe.isLive()) pass("session live") else fail("session not live after start")
+        bounded(30_000) {
+            ptyProbe.start()
+            if (ptyProbe.isLive()) pass("session live") else fail("session not live after start")
+        }
     }
     results += safe("PTY.echo-roundtrip", "stdin→stdout echo through the native master/slave pair") {
-        val nonce = "pty-${System.nanoTime()}"
-        if (ptyProbe.sendAndAwait("echo $nonce", nonce)) pass("echo contained $nonce") else fail("echo never appeared")
+        bounded(20_000) {
+            val nonce = "pty-${System.nanoTime()}"
+            if (ptyProbe.sendAndAwait("echo $nonce", nonce)) pass("echo contained $nonce") else fail("echo never appeared")
+        }
     }
     results += safe("PTY.resize", "resize() reaches the kernel and stty agrees (SIGWINCH path)") {
-        val rows = 24
-        val cols = 96
-        val confirmed = ptyProbe.resizeAndConfirm(rows, cols)
-        if (confirmed != null && confirmed.contains("$rows $cols")) pass("stty reported '$confirmed'")
-        else fail("stty size mismatch: '$confirmed'")
+        bounded(25_000) {
+            val rows = 24
+            val cols = 96
+            val confirmed = ptyProbe.resizeAndConfirm(rows, cols)
+            if (confirmed != null && confirmed.contains("$rows $cols")) pass("stty reported '$confirmed'")
+            else fail("stty size mismatch: '$confirmed'")
+        }
     }
     results += safe("PTY.exit-status", "shell exit status propagates through the reaper") {
-        val code = ptyProbe.exitCodeEcho()
-        if (code == 3) pass("exit code 3 observed via real handle chain") else fail("unexpected exit status: $code")
+        bounded(30_000) {
+            val code = ptyProbe.exitCodeEcho()
+            if (code == 3) pass("exit code 3 observed via real handle chain") else fail("unexpected exit status: $code")
+        }
     }
     results += safe("PTY.reopen-cycle", "10 sequential open/close cycles complete cleanly") {
-        repeat(10) { index ->
-            if (!ptyProbe.openDestroyCycle()) fail("cycle ${index + 1} failed")
+        bounded(120_000) {
+            repeat(10) { index ->
+                if (!ptyProbe.openDestroyCycle()) fail("cycle ${index + 1} failed")
+            }
+            pass("10/10 cycles OK")
         }
-        pass("10/10 cycles OK")
     }
     results += safe("PTY.bad-cwd", "invalid cwd surfaces as PtyStartException-style failure, not a crash") {
-        val err = ptyProbe.badCwdStart()
-        if (err != null) pass("start refused: $err") else fail("bad cwd unexpectedly started")
+        bounded(20_000) {
+            val err = ptyProbe.badCwdStart()
+            if (err != null) pass("start refused: $err") else fail("bad cwd unexpectedly started")
+        }
     }
     return DeviceCheckGroup("PTY", "Native PTY behavior matrix", results)
+}
+
+/** Overall cap for a check body; exceeding it is surfaced as FAIL, never a hang. */
+private suspend fun bounded(millis: Long, body: suspend () -> Unit) {
+    if (withTimeoutOrNull(millis) { body() } == null) fail("check exceeded ${millis}ms overall")
 }

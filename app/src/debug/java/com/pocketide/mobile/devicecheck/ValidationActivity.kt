@@ -85,7 +85,11 @@ class ValidationActivity : ComponentActivity() {
             kotlinx.coroutines.delay(1_500)
             try {
                 Diagnostics.log(applicationContext, "activity/auto", "auto-run start")
-                val report = HeadlessAutoRunner.runNow(this@ValidationActivity, RunMode.ACTIVITY_AUTO)
+                val report = HeadlessAutoRunner.runNow(
+                    this@ValidationActivity,
+                    RunMode.ACTIVITY_AUTO,
+                    attachedEngine = probeEngineHolder
+                )
                 Diagnostics.log(
                     applicationContext, "activity/auto",
                     report?.let { "auto-run done · ${it.summaryLine()}" } ?: "auto-run skipped (concurrent)"
@@ -151,7 +155,8 @@ class ValidationActivity : ComponentActivity() {
                 val report = HeadlessAutoRunner.runNow(
                     this@ValidationActivity,
                     RunMode.MANUAL_BUTTON,
-                    live = liveSnapshot()
+                    live = liveSnapshot(),
+                    attachedEngine = probeEngineHolder
                 )
                 if (report == null) {
                     runStatus.value = "a run is already in flight"

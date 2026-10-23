@@ -3,6 +3,8 @@
 
     <!-- Termux RUN_COMMAND integration (T3/system): sender must hold this
          app-level permission, declared by the Termux app. -->
+    <!-- Connectivity sampling: ACCESS_NETWORK_STATE required for historic/real ConnectivityManager state on API 23+. -->
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="com.termux.permission.RUN_COMMAND" />
 
     <!-- Package-visibility (Android 11+): PocketIDE must be allowed to probe

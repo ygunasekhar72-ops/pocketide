@@ -49,7 +49,16 @@ class HardwarePtyProbe(
         trace(
             "start: settle status='${settle.statusLabel}' textChars=${settle.text.length}"
         )
-        return if (live == true) null else "session did not reach live state (status '${status.statusLabel}')"
+        // PASS requires evidence of actual shell output, not merely the
+        // VM's synchronous live flag (a live-but-silent session is a real
+        // PTY defect, not a start success).
+        return if (live != true) {
+            "session did not reach live state (status '${status.statusLabel}')"
+        } else if (settle.text.isEmpty()) {
+            "shell started (status '${settle.statusLabel}') but produced no output within 6s"
+        } else {
+            null
+        }
     }
 
     override suspend fun isLive(): Boolean = terminalViewModel.uiState.value.live

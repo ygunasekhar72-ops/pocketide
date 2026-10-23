@@ -114,14 +114,24 @@
       },
       insertAtCursor: function (text) {
         if (typeof text !== 'string' || text.length === 0) return;
+        // When the editor is unfocused, getSelection() falls back to (1,1)
+        // and executeEdits would insert at the document start; pin the
+        // anchor to the tracked cursor position instead.
         var sel = editor.getSelection();
+        if (!sel || sel.equals(new monaco.Range(1, 1, 1, 1))) {
+          var p = editor.getPosition() || new monaco.Position(1, 1);
+          sel = new monaco.Range(p.lineNumber, p.column, p.lineNumber, p.column);
+        }
         editor.executeEdits('pocketide', [{
-          range: sel || new monaco.Range(1, 1, 1, 1),
+          range: sel,
           text: text,
           forceMoveMarkers: true
         }]);
       },
       moveCursor: function (dir) {
+        // Cursor commands need an active editor; without focus, trigger()
+        // can silently drop the move, so ensure focus first.
+        if (!editor.hasTextFocus()) editor.focus();
         switch (dir) {
           case 'left': editor.trigger('pocketide', 'cursorLeft', null); break;
           case 'right': editor.trigger('pocketide', 'cursorRight', null); break;
@@ -131,8 +141,13 @@
         }
       },
       insertTab: function () {
+        var sel = editor.getSelection();
+        if (!sel || sel.equals(new monaco.Range(1, 1, 1, 1))) {
+          var p = editor.getPosition() || new monaco.Position(1, 1);
+          sel = new monaco.Range(p.lineNumber, p.column, p.lineNumber, p.column);
+        }
         editor.executeEdits('pocketide', [{
-          range: editor.getSelection() || new monaco.Range(1, 1, 1, 1),
+          range: sel,
           text: '\t',
           forceMoveMarkers: true
         }]);

@@ -18,4 +18,12 @@ object PtyDiagBridge {
      * failure phase>" otherwise. Handle semantics are identical to nativeOpen.
      */
     external fun nativeOpenDiag(cwd: String, envp: Array<String>): String
+
+    /**
+     * Debug-only raw ptmx↔pts data-path self-test in this process: master
+     * write → slave read and slave write → master read with bounded polls.
+     * Discriminates a broken ptmx instance (kernel data path) from an app
+     * process/fork problem.
+     */
+    external fun nativePtmxSelfTest(): String
 }

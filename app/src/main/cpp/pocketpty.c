@@ -678,6 +678,98 @@ Java_com_pocketide_mobile_devicecheck_PtyDiagBridge_nativeOpenDiag(JNIEnv *env, 
 
 #ifdef POCKETPTY_DEBUG_DIAG
 /*
+ * Debug-only self-test of the raw ptmx->pts data path in THIS process:
+ * open(/dev/ptmx) -> TIOCGPTN -> slave open(/dev/pts/N) -> write master,
+ * poll+read slave (up to 1.5s) -> write slave, poll+read master. Exposes
+ * whether the kernel actually delivers bytes between this app's ptmx and
+ * its pts node (the ROOT-CAUSE discriminator for the silent-shell defect
+ * observed on-device). No session state is touched.
+ */
+JNIEXPORT jstring JNICALL
+Java_com_pocketide_mobile_devicecheck_PtyDiagBridge_nativePtmxSelfTest(JNIEnv *env, jclass clazz)
+{
+    (void)clazz;
+    char out[1024];
+    int master = open("/dev/ptmx", O_RDWR | O_NOCTTY | O_CLOEXEC);
+    if (master < 0) {
+        snprintf(out, sizeof(out), "ptmx-open-failed e=%d", errno);
+        return (*env)->NewStringUTF(env, out);
+    }
+    int n = -1;
+    if (ioctl(master, TIOCGPTN, &n) != 0 || n < 0) {
+        snprintf(out, sizeof(out), "ptiogptn-failed e=%d", errno);
+        close(master);
+        return (*env)->NewStringUTF(env, out);
+    }
+    if (ioctl(master, TIOCSPTLUN, &n) != 0) {
+        snprintf(out, sizeof(out), "unlockpt-failed e=%d", errno);
+        close(master);
+        return (*env)->NewStringUTF(env, out);
+    }
+    char slavePath[64];
+    snprintf(slavePath, sizeof(slavePath), "/dev/pts/%d", n);
+    int slave = open(slavePath, O_RDWR | O_NOCTTY | O_CLOEXEC);
+    if (slave < 0) {
+        snprintf(out, sizeof(out), "slave-open-failed path=%s e=%d", slavePath, errno);
+        close(master);
+        return (*env)->NewStringUTF(env, out);
+    }
+    (void)fcntl(master, F_SETFL, fcntl(master, F_GETFL) | O_NONBLOCK);
+    (void)fcntl(slave, F_SETFL, fcntl(slave, F_GETFL) | O_NONBLOCK);
+
+    const char *payload = "SELFTEST-M2S-7717\n";
+    size_t plen = strlen(payload);
+    int wroteM = 0;
+    struct pollfd wm = { master, POLLOUT, 0 };
+    if (poll(&wm, 1, 1000) > 0)
+        wroteM = (int)write(master, payload, plen);
+
+    char gotS[128] = { 0 };
+    int gotSlen = 0;
+    {
+        long long dl = pt_now_ms() + 1500;
+        for (;;) {
+            struct pollfd p = { slave, POLLIN, 0 };
+            if (poll(&p, 1, 250) <= 0) { if (pt_now_ms() >= dl) break; continue; }
+            ssize_t r = read(slave, gotS + gotSlen, sizeof(gotS) - 1 - gotSlen);
+            if (r > 0) { gotSlen += (int)r; break; }
+            if (errno == EAGAIN || errno == EINTR) continue;
+            break;
+        }
+    }
+    gotS[gotSlen > 0 ? (sizeof(gotS) - 1 < (size_t)gotSlen ? (int)sizeof(gotS) - 1 : gotSlen) : 0] = '\0';
+
+    int wroteS = 0;
+    struct pollfd ws = { slave, POLLOUT, 0 };
+    if (poll(&ws, 1, 1000) > 0)
+        wroteS = (int)write(slave, "S2M-4441\n", 9);
+
+    char gotM[128] = { 0 };
+    int gotMlen = 0;
+    {
+        long long dl = pt_now_ms() + 1500;
+        for (;;) {
+            struct pollfd p = { master, POLLIN, 0 };
+            if (poll(&p, 1, 250) <= 0) { if (pt_now_ms() >= dl) break; continue; }
+            ssize_t r = read(master, gotM + gotMlen, sizeof(gotM) - 1 - gotMlen);
+            if (r > 0) { gotMlen += (int)r; break; }
+            if (errno == EAGAIN || errno == EINTR) continue;
+            break;
+        }
+    }
+    gotM[gotMlen > 0 ? (sizeof(gotM) - 1 < (size_t)gotMlen ? (int)sizeof(gotM) - 1 : gotMlen) : 0] = '\0';
+
+    snprintf(out, sizeof(out),
+             "ptn=%d slavePath=%s masterWrite=%d bytes=%d slaveRead=%d %s "
+             "slaveWrite=%d masterRead=%d %s",
+             n, slavePath, wroteM, (int)plen, gotSlen, gotS,
+             wroteS, gotMlen, gotM);
+    close(slave);
+    close(master);
+    return (*env)->NewStringUTF(env, out);
+}
+
+/*
  * Debug-only: pid of the child spawned by the most recent successful open.
  * -1 when no open has succeeded since process start (or a release build).
  * Read-only accessor; no locks (single word, best-effort diagnostics).

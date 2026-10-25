@@ -55,6 +55,12 @@ interface LiveSnapshot {
     fun networkSample(): String
 }
 
+/**
+ * Marker for probes that also drive the debug-only PtyDiagBridge JNI surface
+ * (phase-traced opens). Production path never needs it.
+ */
+interface DiagCapablePtyProbe : PtyProbe
+
 interface PtyProbe {
     /** Starts a real native PTY session. Null message means started OK. */
     suspend fun start(): String?
@@ -181,6 +187,19 @@ private suspend fun runDiagGroup(ptyProbe: PtyProbe?): DeviceCheckGroup {
     results += safe("DIAG.pty-diag", "Root-cause diagnostic: native open phases, child /proc snapshot, raw stdin/stdout") {
         val report = ptyProbe.diagReport()
         if (report != null && report.isNotBlank()) pass(report.take(900)) else fail("diagnostic unavailable")
+    }
+    if (ptyProbe is DiagCapablePtyProbe) {
+        results += safe("DIAG.ptmx-datapath", "In-process ptmx↔pts raw byte-path self-test plus /dev devpts mount namespace snapshot") {
+            val self = PtyDiagBridge.nativePtmxSelfTest()
+            val mounts = try {
+                java.io.File("/proc/self/mounts").readLines()
+                    .filter { it.contains("ptmx") || it.contains("devpts") || it.endsWith(" /dev ") || it.startsWith("tmpfs /dev ") || it.contains("/dev/bus") || it.contains(" /dev ") }
+                    .joinToString(";") { l -> l.split(" ").take(3).joinToString(":") }
+            } catch (e: Exception) { "mounts-unreadable:${e::class.simpleName}" }
+            if (self.contains("masterWrite=") && self.contains("slaveRead=")
+                && !self.contains("masterWrite=-1")) pass("self=$self mounts=[$mounts]")
+            else fail("self=$self mounts=[$mounts]")
+        }
     }
     return DeviceCheckGroup("DIAG", "Native PTY root-cause diagnostics", results)
 }

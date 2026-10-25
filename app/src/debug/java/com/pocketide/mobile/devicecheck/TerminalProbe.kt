@@ -25,7 +25,7 @@ class HardwarePtyProbe(
     private val terminalViewModel: TerminalViewModel,
     private val workspaceRootDir: File,
     private val trace: (String) -> Unit = {}
-) : PtyProbe {
+) : com.pocketide.mobile.devicecheck.DiagCapablePtyProbe {
 
     override suspend fun start(): String? {
         trace("start: request begin")

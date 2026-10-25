@@ -331,8 +331,14 @@ private suspend fun runPtyGroup(
     results += safe("PTY.start", "Real /system/bin/sh session starts through the JNI PTY") {
         ptyCheckTrace?.invoke("PTY.start")
         bounded(30_000) {
-            ptyProbe.start()
-            if (ptyProbe.isLive()) pass("session live") else fail("session not live after start")
+            // Start must be evidence-backed: a non-null message is the probe's
+            // honest verdict (e.g. live-but-silent shell) and fails the check.
+            val startFailure = ptyProbe.start()
+            if (startFailure == null && ptyProbe.isLive()) {
+                pass("session live, shell output observed")
+            } else {
+                fail(startFailure ?: "session not live after start")
+            }
         }
     }
     results += safe("PTY.echo-roundtrip", "stdin→stdout echo through the native master/slave pair") {

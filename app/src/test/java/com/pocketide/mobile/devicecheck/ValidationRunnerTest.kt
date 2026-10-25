@@ -193,7 +193,7 @@ class ValidationRunnerTest {
             FakeEditorProbe(), FakePtyProbe(), FakeLiveSnapshot(), emptyMap(),
             onGroup = { seen.add(it.id) }
         )
-        assertEquals(listOf("ENV", "A", "B", "C", "D", "E", "F", "PTY"), seen)
+        assertEquals(listOf("ENV", "DIAG", "A", "B", "C", "D", "E", "F", "PTY"), seen)
     }
 
     @Test

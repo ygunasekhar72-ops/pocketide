@@ -701,11 +701,13 @@ Java_com_pocketide_mobile_devicecheck_PtyDiagBridge_nativePtmxSelfTest(JNIEnv *e
         close(master);
         return (*env)->NewStringUTF(env, out);
     }
-    /* TIOCSPTLUN ("unlock") is not exposed by bionic headers. */
+    /* TIOCSPTLUN ("unlock") is not exposed by bionic headers; the kernel
+     * convention is *arg == 0 (unlocked), any non-zero value locks the pts. */
 #ifndef TIOCSPTLUN
 #define TIOCSPTLUN _IOW('T', 0x31, int)
 #endif
-    if (ioctl(master, TIOCSPTLUN, &n) != 0) {
+    int unlockVal = 0;
+    if (ioctl(master, TIOCSPTLUN, &unlockVal) != 0) {
         snprintf(out, sizeof(out), "unlockpt-failed e=%d", errno);
         close(master);
         return (*env)->NewStringUTF(env, out);
@@ -763,14 +765,44 @@ Java_com_pocketide_mobile_devicecheck_PtyDiagBridge_nativePtmxSelfTest(JNIEnv *e
     }
     gotM[gotMlen > 0 ? (sizeof(gotM) - 1 < (size_t)gotMlen ? (int)sizeof(gotM) - 1 : gotMlen) : 0] = '\0';
 
-    snprintf(out, sizeof(out),
+    char out2[1536];
+    snprintf(out2, sizeof(out2),
              "ptn=%d slavePath=%s masterWrite=%d bytes=%d slaveRead=%d %s "
              "slaveWrite=%d masterRead=%d %s",
              n, slavePath, wroteM, (int)plen, gotSlen, gotS,
              wroteS, gotMlen, gotM);
     close(slave);
     close(master);
-    return (*env)->NewStringUTF(env, out);
+
+    /* (b) bionic openpty pair — same primitives the production session uses. */
+    int bMaster = -1, bSlave = -1;
+    int wroteB = 0, gotBSlen = 0;
+    char bBuf[128] = { 0 };
+    if (openpty(&bMaster, &bSlave, NULL, NULL, NULL) == 0) {
+        (void)fcntl(bMaster, F_SETFL, fcntl(bMaster, F_GETFL) | O_NONBLOCK);
+        (void)fcntl(bSlave, F_SETFL, fcntl(bSlave, F_GETFL) | O_NONBLOCK);
+        struct pollfd wb = { bMaster, POLLOUT, 0 };
+        if (poll(&wb, 1, 1000) > 0)
+            wroteB = (int)write(bMaster, "BIONIC-PAIR-2211\n", 17);
+        long long dl2 = pt_now_ms() + 1500;
+        for (;;) {
+            struct pollfd pb = { bSlave, POLLIN, 0 };
+            if (poll(&pb, 1, 250) <= 0) { if (pt_now_ms() >= dl2) break; continue; }
+            ssize_t r = read(bSlave, bBuf, sizeof(bBuf) - 1);
+            if (r > 0) { gotBSlen = (int)r; break; }
+            if (errno == EAGAIN || errno == EINTR) continue;
+            break;
+        }
+        bBuf[gotBSlen >= 0 ? (sizeof(bBuf) - 1 < gotBSlen ? (int)sizeof(bBuf) - 1 : gotBSlen) : 0] = '\0';
+        close(bSlave);
+        close(bMaster);
+    }
+
+    char finalOut[2048];
+    snprintf(finalOut, sizeof(finalOut), "manual=%s bionicPair=%s masterWrite=%d slaveRead=%d %s",
+             out2, (bMaster < 0 ? "openpty-failed" : "ok"),
+             wroteB, gotBSlen, bBuf);
+    return (*env)->NewStringUTF(env, finalOut);
 }
 
 /*

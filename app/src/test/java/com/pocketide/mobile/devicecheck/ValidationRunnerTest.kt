@@ -96,6 +96,10 @@ class ValidationRunnerTest {
         override suspend fun badCwdStart(): String? = badCwd
 
         override fun notePauseResume(visibleGone: Boolean) = Unit
+
+        var diagReport: String? = "open1=H=0|ok childPid1=1 echo=ok"
+
+        override suspend fun diagReport(): String? = diagReport
     }
 
     private class FakeStoreProbe : StoreProbe {

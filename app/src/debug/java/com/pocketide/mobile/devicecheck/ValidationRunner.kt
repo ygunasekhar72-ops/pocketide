@@ -82,6 +82,13 @@ interface PtyProbe {
 
     /** UI layer records pause/resume observations for manual evidence. */
     fun notePauseResume(visibleGone: Boolean)
+
+    /**
+     * P3f root-cause diagnostic: two phase-traced raw opens, /proc child
+     * snapshot, and a raw stdin/stdout round trip. Null = diagnostic could
+     * not even start (never suppresses other checks).
+     */
+    suspend fun diagReport(): String?
 }
 
 /**
@@ -101,6 +108,7 @@ suspend fun runValidationMatrix(
 ): List<DeviceCheckGroup> {
     val groups = mutableListOf<DeviceCheckGroup>()
     runFactsGroup(facts, snapshots).also { groups += it; onGroup?.invoke(it) }
+    runDiagGroup(ptyProbe).also { groups += it; onGroup?.invoke(it) }
     runAirplaneGroup(editorProbe, snapshots).also { groups += it; onGroup?.invoke(it) }
     runKeyboardGroup(snapshots, manualEvidence).also { groups += it; onGroup?.invoke(it) }
     runCursorGroup(editorProbe).also { groups += it; onGroup?.invoke(it) }
@@ -157,6 +165,24 @@ private suspend fun runFactsGroup(facts: Map<String, String>, snapshots: LiveSna
         }
     )
     return DeviceCheckGroup("ENV", "Environment and provenance", results)
+}
+
+private suspend fun runDiagGroup(ptyProbe: PtyProbe?): DeviceCheckGroup {
+    val results = mutableListOf<DeviceCheckResult>()
+    if (ptyProbe == null) {
+        results += DeviceCheckResult(
+            "DIAG.pty-diag",
+            "Root-cause diagnostic: native open phases, child /proc snapshot, raw stdin/stdout",
+            DeviceCheckResult.STATUS_BLOCKED,
+            "no PTY probe available"
+        )
+        return DeviceCheckGroup("DIAG", "Native PTY root-cause diagnostics", results)
+    }
+    results += safe("DIAG.pty-diag", "Root-cause diagnostic: native open phases, child /proc snapshot, raw stdin/stdout") {
+        val report = ptyProbe.diagReport()
+        if (report != null && report.isNotBlank()) pass(report.take(900)) else fail("diagnostic unavailable")
+    }
+    return DeviceCheckGroup("DIAG", "Native PTY root-cause diagnostics", results)
 }
 
 private suspend fun runAirplaneGroup(editorProbe: EditorProbe?, snapshots: LiveSnapshot): DeviceCheckGroup {

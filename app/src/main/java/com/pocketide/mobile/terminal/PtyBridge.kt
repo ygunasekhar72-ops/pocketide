@@ -54,4 +54,11 @@ object PtyBridge {
 
     /** Exactly-once native cleanup per live handle. See class KDoc codes. */
     external fun nativeDestroy(handle: Long): Int
+
+    /**
+     * Debug-build only (symbol absent in release): pid of the child spawned by
+     * the most recent successful [nativeOpen], or -1. Lets device-side harnesses
+     * locate the session leader under /proc/<pid> for root-cause diagnostics.
+     */
+    external fun nativeLastChildPid(): Long
 }

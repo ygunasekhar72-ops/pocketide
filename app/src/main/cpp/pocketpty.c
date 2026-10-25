@@ -45,6 +45,7 @@
 #include <poll.h>
 #include <pthread.h>
 #include <signal.h>
+#include <stdarg.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -103,6 +104,14 @@ typedef struct {
 
 static pt_slot_t g_slots[PT_MAX_SESSIONS];
 static pthread_mutex_t g_reg_mu = PTHREAD_MUTEX_INITIALIZER;
+
+/*
+ * Child pid of the last SUCCESSFULLY registered nativeOpen. Debug-only
+ * diagnostics accessor (POCKETPTY_DEBUG_DIAG builds) lets harnesses locate
+ * the spawned session leader under /proc/<pid> (same-uid children are
+ * inspectable by the parent app without any extra permission).
+ */
+static volatile pid_t g_last_child_pid = -1;
 
 static long long pt_now_ms(void)
 {
@@ -334,14 +343,37 @@ static void pt_child_fail(int w, int err)
 }
 
 /*
- * Opens one session. Returns ((slotIndex << 32) | generation) as the handle,
- * or -1 after an exception has been thrown (PtyStartException / IOException).
+ * Shared open implementation. Throws PtyStartException-style IOException on
+ * failure in production mode (diag == 0, returning -1). In debug-diag mode
+ * it appends a phase trace into [trace] (fixed-size buffer) and returns
+ * without throwing so the harness can localize a wedged phase.
  */
-JNIEXPORT jlong JNICALL
-Java_com_pocketide_mobile_terminal_PtyBridge_nativeOpen(JNIEnv *env, jclass clazz, jstring jcwd, jobjectArray jenv)
+static void pt_trace(char *trace, size_t traceSz, long long t0, const char *fmt, ...)
 {
-    (void)clazz;
+    if (trace == NULL) return;
+    va_list ap;
+    int used = (int)strlen(trace);
+    va_start(ap, fmt);
+    if (used < (int)traceSz) {
+        int n = vsnprintf(trace + used, traceSz - (size_t)used, fmt, ap);
+        if (n < 0) n = 0;
+        used += n;
+        if (used < (int)traceSz - 2) {
+            trace[used++] = ' ';
+            trace[used] = '\0';
+        }
+    }
+    va_end(ap);
+    (void)t0;
+}
+
+static long long pt_open_internal(
+    JNIEnv *env, jstring jcwd, jobjectArray jenv,
+    int diag, char *trace, size_t traceSz
+)
+{
     pt_init_registry();
+    long long t0 = pt_now_ms();
 
     /* 1. Materialize argv/envp BEFORE fork. */
     const char *cwdUtf = (*env)->GetStringUTFChars(env, jcwd, NULL);
@@ -352,7 +384,8 @@ Java_com_pocketide_mobile_terminal_PtyBridge_nativeOpen(JNIEnv *env, jclass claz
     char *cwd = strdup(cwdUtf);
     (*env)->ReleaseStringUTFChars(env, jcwd, cwdUtf);
     if (!cwd) {
-        jni_throw_msg(env, "java/io/IOException", "pocketpty: out of memory");
+        pt_trace(trace, traceSz, t0, "oom-cwd");
+        if (!diag) jni_throw_msg(env, "java/io/IOException", "pocketpty: out of memory");
         return -1;
     }
 
@@ -398,19 +431,24 @@ Java_com_pocketide_mobile_terminal_PtyBridge_nativeOpen(JNIEnv *env, jclass claz
     long long ret = -1;
 
     if (openpty(&master, &slave, NULL, NULL, NULL) != 0) {
-        jni_throw_errno(env, "java/io/IOException", "pocketpty: openpty failed", errno);
+        pt_trace(trace, traceSz, t0, "openpty-fail e=%d", errno);
+        if (!diag) jni_throw_errno(env, "java/io/IOException", "pocketpty: openpty failed", errno);
         goto out;
     }
+    pt_trace(trace, traceSz, t0, "openpty-ok m=%d s=%d", master, slave);
     if (pt_pipe_cloexec_nonblock(errPipe) != 0) {
-        jni_throw_errno(env, "java/io/IOException", "pocketpty: pipe failed", errno);
+        pt_trace(trace, traceSz, t0, "errpipe-fail e=%d", errno);
+        if (!diag) jni_throw_errno(env, "java/io/IOException", "pocketpty: pipe failed", errno);
         goto out;
     }
 
     pid = fork();
     if (pid < 0) {
-        jni_throw_errno(env, "java/io/IOException", "pocketpty: fork failed", errno);
+        pt_trace(trace, traceSz, t0, "fork-fail e=%d", errno);
+        if (!diag) jni_throw_errno(env, "java/io/IOException", "pocketpty: fork failed", errno);
         goto out;
     }
+    pt_trace(trace, traceSz, t0, "fork-ok pid=%d", (int)pid);
 
     if (pid == 0) {
         /* Child: no JNI, no malloc, no locks below this line. */
@@ -447,7 +485,8 @@ Java_com_pocketide_mobile_terminal_PtyBridge_nativeOpen(JNIEnv *env, jclass claz
         char tmp[16];
         int got = 0;
         int eofSeen = 0;
-        long long dlMs = pt_now_ms() + PT_ERRPIPE_TIMEOUT_MS;
+        long long probeStart = pt_now_ms();
+        long long dlMs = probeStart + PT_ERRPIPE_TIMEOUT_MS;
         while (!eofSeen) {
             struct pollfd pf = { errPipe[0], POLLIN, 0 };
             long long left = dlMs - pt_now_ms();
@@ -472,6 +511,8 @@ Java_com_pocketide_mobile_terminal_PtyBridge_nativeOpen(JNIEnv *env, jclass claz
             }
             if (got > 4) break;
         }
+        pt_trace(trace, traceSz, t0, "errprobe eof=%d got=%d ms=%lld",
+                 eofSeen, got, pt_now_ms() - probeStart);
         if (!eofSeen || got > 0) {
             /* Start failure (or unconfirmable): reap the child inline. */
             for (;;) {
@@ -489,9 +530,11 @@ Java_com_pocketide_mobile_terminal_PtyBridge_nativeOpen(JNIEnv *env, jclass claz
                 snprintf(buf, sizeof(buf), "%s", strerror(childErrno));
                 what = buf;
             }
-            jni_throw_msg(env, "java/io/IOException", what);
+            pt_trace(trace, traceSz, t0, "child-failed claim=%s", what);
+            if (!diag) jni_throw_msg(env, "java/io/IOException", what);
             goto out;
         }
+        pt_trace(trace, traceSz, t0, "child-confirmed");
     }
 
     /* 4. Wake pipe + master nonblocking + slot registration + reaper. */
@@ -501,9 +544,11 @@ Java_com_pocketide_mobile_terminal_PtyBridge_nativeOpen(JNIEnv *env, jclass claz
         int fl = fcntl(master, F_GETFL);
         if (fl >= 0) (void)fcntl(master, F_SETFL, fl | O_NONBLOCK);
     }
+    pt_trace(trace, traceSz, t0, "master-nonblock");
     {
         int wake[2] = { -1, -1 };
         if (pt_pipe_cloexec_nonblock(wake) != 0) {
+            pt_trace(trace, traceSz, t0, "wakepipe-fail e=%d", errno);
             jni_throw_errno(env, "java/io/IOException", "pocketpty: wake pipe failed", errno);
             /* reap + close (rollback I6) */
             for (;;) {
@@ -538,6 +583,7 @@ Java_com_pocketide_mobile_terminal_PtyBridge_nativeOpen(JNIEnv *env, jclass claz
             s->reaperLive = 0;
             s->rawStatus = 0;
             s->state = PT_SLOT_ACTIVE;
+            g_last_child_pid = (pid_t)pid;
             pthread_mutex_unlock(&s->mu);
 
             if (pthread_create(&s->reaper, NULL, pt_reaper_fn, s) == 0) {
@@ -545,6 +591,8 @@ Java_com_pocketide_mobile_terminal_PtyBridge_nativeOpen(JNIEnv *env, jclass claz
                 s->reaperLive = 1;
                 pthread_mutex_unlock(&s->mu);
                 ret = ((long long)idx << 32) | s->generation;
+                pt_trace(trace, traceSz, t0, "reaped-ok slot=%d ret=%lld total=%lldms",
+                         idx, ret, pt_now_ms() - t0);
             } else {
                 /* Rollback: no zombie, no leaked fds, slot back to FREE. */
                 kill(pid, SIGKILL);
@@ -583,11 +631,7 @@ Java_com_pocketide_mobile_terminal_PtyBridge_nativeOpen(JNIEnv *env, jclass claz
         goto out;
     }
 
-done:
-    free(cwd);
-    for (int i = 0; i < n; ++i) free(envp[i]);
-    free(envp);
-    return ret;
+    return -1; /* unreachable */
 
 out:
     if (master >= 0) close(master);
@@ -597,8 +641,54 @@ out:
     free(cwd);
     for (int i = 0; i < n; ++i) free(envp[i]);
     free(envp);
+    pt_trace(trace, traceSz, t0, "open-failed total=%lldms", pt_now_ms() - t0);
     return -1;
+
+done:
+    free(cwd);
+    for (int i = 0; i < n; ++i) free(envp[i]);
+    free(envp);
+    return ret;
 }
+
+JNIEXPORT jlong JNICALL
+Java_com_pocketide_mobile_terminal_PtyBridge_nativeOpen(JNIEnv *env, jclass clazz, jstring jcwd, jobjectArray jenv)
+{
+    return pt_open_internal(env, jcwd, jenv, 0, NULL, 0);
+}
+
+#ifdef POCKETPTY_DEBUG_DIAG
+/*
+ * Debug-only phase-traced variant of nativeOpen: identical semantics, no
+ * exceptions on failure (failure still returns -1), and the returned string
+ * carries the per-phase trace. Never linked into release builds.
+ */
+JNIEXPORT jstring JNICALL
+Java_com_pocketide_mobile_devicecheck_PtyDiagBridge_nativeOpenDiag(JNIEnv *env, jclass clazz, jstring jcwd, jobjectArray jenv)
+{
+    static const size_t TRACE_SZ = 2048;
+    char trace[TRACE_SZ];
+    trace[0] = '\0';
+    long long h = pt_open_internal(env, jcwd, jenv, 1, trace, TRACE_SZ);
+    char out[TRACE_SZ + 64];
+    snprintf(out, sizeof(out), "H=%lld |%s", h, trace);
+    return (*env)->NewStringUTF(env, out);
+}
+#endif
+
+#ifdef POCKETPTY_DEBUG_DIAG
+/*
+ * Debug-only: pid of the child spawned by the most recent successful open.
+ * -1 when no open has succeeded since process start (or a release build).
+ * Read-only accessor; no locks (single word, best-effort diagnostics).
+ */
+JNIEXPORT jlong JNICALL
+Java_com_pocketide_mobile_terminal_PtyBridge_nativeLastChildPid(JNIEnv *env, jclass clazz)
+{
+    (void)env; (void)clazz;
+    return (jlong)g_last_child_pid;
+}
+#endif
 
 /*
  * Reader hook. Returns: >0 bytes copied; 0 = EOF (child side is gone);

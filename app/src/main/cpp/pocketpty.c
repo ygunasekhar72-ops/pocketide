@@ -701,6 +701,10 @@ Java_com_pocketide_mobile_devicecheck_PtyDiagBridge_nativePtmxSelfTest(JNIEnv *e
         close(master);
         return (*env)->NewStringUTF(env, out);
     }
+    /* TIOCSPTLUN ("unlock") is not exposed by bionic headers. */
+#ifndef TIOCSPTLUN
+#define TIOCSPTLUN _IOW('T', 0x31, int)
+#endif
     if (ioctl(master, TIOCSPTLUN, &n) != 0) {
         snprintf(out, sizeof(out), "unlockpt-failed e=%d", errno);
         close(master);
